@@ -10,6 +10,7 @@ generator client {
 // ==========================================
 // ENUMS
 // ==========================================
+
 enum SettlementTier {
   REFUGIO
   PEQUENO_GRUPO
@@ -37,7 +38,6 @@ enum ProfessionType {
   AGRICULTOR
   GANADERO
   CARPINTERO
-  ALBANIL
   COCINERO
   SASIESTRO
   ARQUERO
@@ -84,7 +84,6 @@ enum BuildingType {
   TABERNA
   TEMPLO
   BIBLIOTECA
-  ACADEMIA
   ESTABLO
   POZO
   MINA
@@ -147,7 +146,6 @@ enum TaskStatus {
 enum JobRole {
   TRABAJADOR
   ESPECIALISTA
-  SUPERVISOR
   GOBERNADOR
   COMANDANTE
   MAESTRO
@@ -211,11 +209,27 @@ model Settlement {
   defensePriority  Int           @default(30)
   productionPriority Int         @default(20)
 
-  // Agregación interna POO
+  // --- NUEVOS CAMPOS OPTIMIZACIÓN FASE 2 ---
+  // Contadores agregados de inventario (para lecturas rápidas sin reescribir todo documento)
+  woodTotal        String        @default("0")
+  stoneTotal       String        @default("0")
+  foodTotal        String        @default("0")
+  waterTotal       String        @default("0")
+
+  // Contadores de entidad (para evitar leer arrays completos cada tick)
+  survivorCount    Int           @default(0)
+  buildingCount    Int           @default(0)
+
+  // --- FIN NUEVOS CAMPOS ---
+
+  // Tipos compuestos embebidos (mantenido para compatibilidad)
   survivors        Survivor[]
   buildings        Building[]
   inventory        Resource[]
   historyLog       HistoryLog[]
+
+  // Colecciones relacionadas
+  mapNpcs          MapNpc[]
 
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
@@ -241,8 +255,48 @@ model GlobalMapChunk {
   @@index([isExplored])
 }
 
+model MapNpc {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  name             String
+  positionX        Float    @default(0)
+  positionY        Float    @default(0)
+  chunkX           Int
+  chunkY           Int
+  settlementId     String?  @db.ObjectId
+  settlement       Settlement? @relation(fields: [settlementId], references: [id])
+  survivorId       String?  @db.ObjectId
+  survivorSurvivor String?  // reference to embedded survivor id within settlement
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([chunkX, chunkY])
+  @@index([settlementId])
+  @@index([survivorId])
+}
+
 // ==========================================
-// TIPOS COMPUESTOS - EMBEBIDOS
+// NUEVA COLECCIÓN: SettlementHistory
+// ==========================================
+
+model SettlementHistory {
+  id               String   @id @map("_id") @default(uuid())
+  settlementId     String   @db.ObjectId
+  gameYear         Int
+  gameMonth        Int
+  gameDay          Int
+  gameTick         Int
+  type             EventType
+  eventText        String
+  metadata         Json?
+  timestamp        DateTime @default(now())
+
+  @@index([settlementId])
+  @@index([gameYear, gameMonth, gameDay])
+}
+
+// ==========================================
+// TIPOS COMPUESTOS - EMBEDIDOS (compatibilidad)
 // ==========================================
 
 type Survivor {
@@ -362,6 +416,7 @@ type Resource {
   weight   Float      @default(0.0)
 }
 
+// Para compatibilidad hacia atrás: tipo HistoryLog embebido
 type HistoryLog {
   id        String   @default(uuid())
   gameYear  Int
@@ -373,3 +428,7 @@ type HistoryLog {
   metadata  Json?
   timestamp DateTime @default(now())
 }
+
+// ==========================================
+// Relaciones y índices
+// ==========================================

@@ -18,6 +18,13 @@ export interface SettlementTickDto {
   season: string;
 }
 
+export interface ViewportDto {
+  minChunkX: number;
+  minChunkY: number;
+  maxChunkX: number;
+  maxChunkY: number;
+}
+
 export interface JoinSettlementDto {
   settlementId: string;
 }

@@ -9,7 +9,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
-import type { JoinSettlementDto } from './dto/game-event.dto';
+import type { JoinSettlementDto, ViewportDto } from './dto/game-event.dto';
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -51,7 +51,28 @@ export class GameEventGateway implements OnGatewayConnection, OnGatewayDisconnec
     this.logger.log(`Client ${client.id} left room ${data.settlementId}`);
   }
 
+  @SubscribeMessage('updateViewport')
+  handleUpdateViewport(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: ViewportDto,
+  ): void {
+    // Store viewport data on the client for later use
+    // The settlementId is available from the client's rooms
+    const settlementId = Array.from(client.rooms).find(
+      (room) => room !== client.id
+    );
+    
+    if (settlementId && data) {
+      // Store viewport info - could also emit an event to notify other components
+      this.logger.log(`Client ${client.id} updated viewport for ${settlementId}`);
+    }
+  }
+
   emitToSettlement(settlementId: string, event: string, payload: unknown): void {
+    this.server.to(settlementId).emit(event, payload);
+  }
+
+  emitDeltaToSettlement(settlementId: string, event: string, payload: unknown): void {
     this.server.to(settlementId).emit(event, payload);
   }
 

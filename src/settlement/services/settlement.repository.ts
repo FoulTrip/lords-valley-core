@@ -77,6 +77,12 @@ export class SettlementRepository {
         weather: 'DESPEJADO' as any, season: 'PRIMAVERA' as any,
         landFertility: 1.0, pollutionLevel: 0, diseaseRisk: 0.02,
         foodPriority: 60, defensePriority: 20, productionPriority: 20,
+        survivorCount: 3,
+        buildingCount: 2,
+        woodTotal: qty(400),
+        stoneTotal: qty(250),
+        foodTotal: qty(150),
+        waterTotal: qty(800),
         survivors: survivors as any,
         buildings: [
           { id: randomUUID(), type: 'ALMACEN' as any, category: 'ALMACENAMIENTO' as any, level: 1, isOperating: true, productionRate: 1, workSlots: [], maxWorkers: 2, currentHP: 100, maxHP: 100, lastMaintenance: new Date() },
@@ -88,6 +94,7 @@ export class SettlementRepository {
           { id: randomUUID(), type: 'RACIONES_COMIDA' as any, quantity: qty(150), weight: 0.3 },
           { id: randomUUID(), type: 'AGUA' as any, quantity: qty(800), weight: 1 },
         ] as any,
+        // HistoryLog: crear entrada inicial en SettlementHistory y mantener una copia embebida
         historyLog: [{ id: randomUUID(), gameYear: 1000, gameMonth: 3, gameDay: 1, gameTick: 0, type: 'SOCIAL' as any, eventText: `Fundación de ${data.name}`, metadata: {}, timestamp: new Date() }] as any,
       },
     });
@@ -100,29 +107,66 @@ export class SettlementRepository {
     SettlementValidator.validateOrphanRefs(snapshot);
     SettlementValidator.validateBsonSize(snapshot);
 
+    // Separar cambios de estado vs. nuevos eventos de historia
+    const { historyLog, ...settlementData } = snapshot;
+
+    // Actualizar solo los campos que cambiaron en Settlement
     await this.prisma.settlement.update({
       where: { id: domainModel.id },
       data: {
-        gameTime: snapshot.gameTime,
-        currentDay: snapshot.currentDay,
-        currentMonth: snapshot.currentMonth,
-        currentYear: snapshot.currentYear,
-        season: snapshot.season,
-        weather: snapshot.weather,
-        lvyBalance: snapshot.lvyBalance,
-        maxLvyStorage: snapshot.maxLvyStorage,
-        landFertility: snapshot.landFertility,
-        pollutionLevel: snapshot.pollutionLevel,
-        diseaseRisk: snapshot.diseaseRisk,
-        foodPriority: snapshot.foodPriority,
-        defensePriority: snapshot.defensePriority,
-        productionPriority: snapshot.productionPriority,
-        survivors: snapshot.survivors as any,
-        buildings: snapshot.buildings as any,
-        inventory: snapshot.inventory as any,
+        gameTime: settlementData.gameTime,
+        currentDay: settlementData.currentDay,
+        currentMonth: settlementData.currentMonth,
+        currentYear: settlementData.currentYear,
+        season: settlementData.season,
+        weather: settlementData.weather,
+        lvyBalance: settlementData.lvyBalance,
+        maxLvyStorage: settlementData.maxLvyStorage,
+        landFertility: settlementData.landFertility,
+        pollutionLevel: settlementData.pollutionLevel,
+        diseaseRisk: settlementData.diseaseRisk,
+        foodPriority: settlementData.foodPriority,
+        defensePriority: settlementData.defensePriority,
+        productionPriority: settlementData.productionPriority,
+        // Actualizar contadores agregados
+        woodTotal: settlementData.woodTotal,
+        stoneTotal: settlementData.stoneTotal,
+        foodTotal: settlementData.foodTotal,
+        waterTotal: settlementData.waterTotal,
+        survivorCount: settlementData.survivorCount,
+        buildingCount: settlementData.buildingCount,
+        // Agregar nueva entrada de historyLog a la colección separada
+        // Mantener los últimos N entradas embebidas para acceso rápido
         historyLog: snapshot.historyLog as any,
       },
     });
+
+    // También guardar la entrada de historia en la colección separada
+    // Solo guardamos si hay eventos nuevos que no estaban antes
+    if (historyLog && historyLog.length > 0) {
+      // Filtrar solo el evento más reciente para guardar en colección separada
+      const recentEvents = historyLog.filter(
+        (log, index) => index >= (snapshot.historyLog?.length || 0)
+      );
+
+      if (recentEvents.length > 0) {
+        for (const event of recentEvents) {
+          await this.prisma.settlementHistory.create({
+            data: {
+              settlementId: domainModel.id,
+              gameYear: event.gameYear,
+              gameMonth: event.gameMonth,
+              gameDay: event.gameDay,
+              gameTick: event.gameTick,
+              type: event.type,
+              eventText: event.eventText,
+              metadata: event.metadata,
+              timestamp: event.timestamp,
+            },
+          });
+        }
+      }
+    }
   }
 
   async delete(id: string): Promise<void> {

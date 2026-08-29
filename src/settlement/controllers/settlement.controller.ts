@@ -9,6 +9,7 @@ import {
   UsePipes,
   ValidationPipe,
   HttpCode,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,6 +20,7 @@ import {
   ApiOkResponse,
   ApiNotFoundResponse,
   ApiNoContentResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { SettlementService } from '../services/settlement.service';
 import { CreateSettlementDto } from '../dto/create-settlement.dto';
@@ -54,6 +56,34 @@ export class SettlementController {
   @ApiOkResponse({ type: [SettlementResponseDto] })
   async findByOwner(@Param('ownerId') ownerId: string): Promise<SettlementResponseDto[]> {
     return this.settlementService.findByOwner(ownerId);
+  }
+
+  @Post(':id/viewport')
+  @ApiOperation({ summary: 'Query chunks by viewport', description: 'Return chunk IDs visible in viewport. Frontend sends camera bounds, server returns chunk coordinates.' })
+  @ApiQuery({ name: 'minChunkX', type: Number, required: false })
+  @ApiQuery({ name: 'minChunkY', type: Number, required: false })
+  @ApiQuery({ name: 'maxChunkX', type: Number, required: false })
+  @ApiQuery({ name: 'maxChunkY', type: Number, required: false })
+  @ApiQuery({ name: 'settlementId', type: Number, required: false })
+  @ApiResponse({ status: 200, type: [String], description: 'List of chunk IDs [chunkX_chunkY]' })
+  async getChunksByViewport(
+    @Param('id') settlementId: string,
+    @Query() query: { minChunkX?: number; minChunkY?: number; maxChunkX?: number; maxChunkY?: number; settlementId?: number },
+  ): Promise<string[]> {
+    const minCX = query.minChunkX ?? 0;
+    const minCY = query.minChunkY ?? 0;
+    const maxCX = query.maxChunkX ?? 100;
+    const maxCY = query.maxChunkY ?? 100;
+
+    // Generate chunk IDs for the viewport area
+    const chunks: string[] = [];
+    for (let cx = minCX; cx <= maxCX; cx++) {
+      for (let cy = minCY; cy <= maxCY; cy++) {
+        chunks.push(`${cx}_${cy}`);
+      }
+    }
+
+    return chunks;
   }
 
   @Patch(':id/priorities')
