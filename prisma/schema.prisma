@@ -1,0 +1,375 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+enum SettlementTier {
+  REFUGIO
+  PEQUENO_GRUPO
+  ASENTAMIENTO
+  ALDEA
+  CIUDAD
+  TERRITORIO
+  IMPERIO
+}
+
+enum Gender {
+  MASCULINO
+  FEMENINO
+  OTRO
+}
+
+enum ProfessionType {
+  LENADOR
+  MINERO
+  HERRERO
+  SOLDADO
+  GOBERNADOR
+  MAESTRO_PRODUCCION
+  MEDICO
+  AGRICULTOR
+  GANADERO
+  CARPINTERO
+  ALBANIL
+  COCINERO
+  SASIESTRO
+  ARQUERO
+  CABALLERO
+  ESPIA
+  COMERCIANTE
+  INGENIERO
+  ALQUIMISTA
+  SACERDOTE
+  DIPLOMATA
+}
+
+enum RelationType {
+  AMISTAD
+  ENEMIGO
+  ALIANZA
+  RIVALIDAD
+  ROMANCE
+  FAMILIA
+  MENTOR
+  DISCIPULO
+}
+
+enum BuildingCategory {
+  PRODUCCION
+  ALMACENAMIENTO
+  MILITAR
+  CIVIL
+  ADMINISTRATIVO
+  DEFENSA
+}
+
+enum BuildingType {
+  ALMACEN
+  HERRERIA
+  GRANJA
+  TALLER
+  MUROS
+  TORRES
+  EDIFICIO_ADMINISTRATIVO
+  CASERNA
+  HOSPITAL
+  MERCADO
+  TABERNA
+  TEMPLO
+  BIBLIOTECA
+  ACADEMIA
+  ESTABLO
+  POZO
+  MINA
+  ASERRADERO
+  CURTIDURIA
+  HORNO
+  TELAR
+}
+
+enum EventType {
+  MILITAR
+  ECONOMICO
+  SOCIAL
+  CLIMATICO
+  LOGRO
+  POLITICO
+  TECNOLOGICO
+}
+
+enum ResourceType {
+  MADERA
+  HIERRO
+  CARBON
+  MARMOL
+  PIEDRA
+  RACIONES_COMIDA
+  ROPA
+  HERRAMIENTAS
+  ARMAS
+  ORO
+  PLATA
+  COBRE
+  CUERO
+  LANA
+  TRIGO
+  VERDURAS
+  FRUTAS
+  CARNE
+  PESCADO
+  AGUA
+  MEDICINAS
+  POCIONES
+  LIBROS
+  PERGAMINOS
+}
+
+enum TaskStatus {
+  IDLE
+  MOVING
+  WORKING
+  RESTING
+  EATING
+  SLEEPING
+  TRAINING
+  COMBAT
+  FLEEING
+  DEAD
+}
+
+enum JobRole {
+  TRABAJADOR
+  ESPECIALISTA
+  SUPERVISOR
+  GOBERNADOR
+  COMANDANTE
+  MAESTRO
+  APRENDIZ
+}
+
+enum Weather {
+  DESPEJADO
+  LLUVIOSO
+  TORMENTA
+  NEVADA
+}
+
+enum Season {
+  PRIMAVERA
+  VERANO
+  OTOÑO
+  INVIERNO
+}
+
+// ==========================================
+// MODELOS RAÍZ - COLECCIONES INDEPENDIENTES
+// ==========================================
+
+model Player {
+  id           String       @id @default(auto()) @map("_id") @db.ObjectId
+  email        String       @unique
+  passwordHash String
+  username     String       @unique
+  settings     Json         @default("{}")
+  settlements  Settlement[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model Settlement {
+  id               String        @id @default(auto()) @map("_id") @db.ObjectId
+  name             String
+  tier             SettlementTier @default(REFUGIO)
+  ownerId          String        @db.ObjectId
+  player           Player        @relation(fields: [ownerId], references: [id])
+
+  // Economía Web3 Ready
+  lvyBalance       String        @default("0")
+  maxLvyStorage    String        @default("0")
+  lastCheckIn      DateTime      @default(now())
+
+  // Simulación física y temporal
+  gameTime         Int           @default(0)
+  currentDay       Int           @default(1)
+  currentMonth     Int           @default(1)
+  currentYear      Int           @default(1)
+  weather          Weather       @default(DESPEJADO)
+  season           Season        @default(PRIMAVERA)
+  landFertility    Float         @default(1.0)
+  pollutionLevel   Float         @default(0.0)
+  diseaseRisk      Float         @default(0.0)
+
+  // Directivas de automatización
+  foodPriority     Int           @default(50)
+  defensePriority  Int           @default(30)
+  productionPriority Int         @default(20)
+
+  // Agregación interna POO
+  survivors        Survivor[]
+  buildings        Building[]
+  inventory        Resource[]
+  historyLog       HistoryLog[]
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([ownerId])
+  @@index([ownerId, tier])
+  @@index([currentYear, currentMonth, currentDay])
+}
+
+model GlobalMapChunk {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  chunkX      Int
+  chunkY      Int
+  tiles       Json
+  resources   Json
+  isExplored  Boolean  @default(false)
+  settledBy   String?  @db.ObjectId
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([chunkX, chunkY])
+  @@index([settledBy])
+  @@index([isExplored])
+}
+
+// ==========================================
+// TIPOS COMPUESTOS - EMBEBIDOS
+// ==========================================
+
+type Survivor {
+  id          String       @default(uuid())
+  firstName   String
+  lastName    String
+  gender      Gender       @default(MASCULINO)
+  age         Int          @default(18)
+  birthDay    Int          @default(1)
+  birthMonth  Int          @default(1)
+  birthYear   Int          @default(1)
+
+  loyalty         Int          @default(50)
+  isLoyalAbsolute Boolean      @default(false)
+  loyaltyHistory  LoyaltyEvent[]
+
+  attributes      Attributes
+  professions     Profession[]
+  needs           Needs
+
+  currentTask     TaskStatus   @default(IDLE)
+  assignedJob     JobRole      @default(TRABAJADOR)
+  positionX       Float        @default(0)
+  positionY       Float        @default(0)
+  superiorId      String?
+
+  lvyBalance      String       @default("0")
+  inventory       Resource[]
+  maxCarryWeight  Float        @default(50.0)
+  currentWeight   Float        @default(0.0)
+
+  socialLinks     SocialLink[]
+}
+
+type Attributes {
+  strength     Int @default(10)
+  agility      Int @default(10)
+  endurance    Int @default(10)
+  intelligence Int @default(10)
+  charisma     Int @default(10)
+  perception   Int @default(10)
+}
+
+type Needs {
+  hunger  Int @default(0)
+  thirst  Int @default(0)
+  fatigue Int @default(0)
+  health  Int @default(100)
+  sanity  Int @default(100)
+  safety  Int @default(50)
+}
+
+type Profession {
+  type            ProfessionType
+  level           Int          @default(1)
+  experience      String       @default("0")
+  specializations String[]
+}
+
+type LoyaltyEvent {
+  id          String   @default(uuid())
+  description String
+  change      Int
+  fulfilled   Boolean  @default(false)
+  gameYear    Int
+  gameDay     Int
+  timestamp   DateTime @default(now())
+}
+
+type SocialLink {
+  targetSurvivorId String
+  type             RelationType
+  affinity         Int
+  sinceYear        Int
+  sinceDay         Int
+}
+
+type Building {
+  id              String         @default(uuid())
+  type            BuildingType
+  category        BuildingCategory
+  level           Int            @default(1)
+  isOperating     Boolean        @default(true)
+  productionRate  Float          @default(1.0)
+
+  workSlots       WorkSlot[]
+  maxWorkers      Int            @default(1)
+  currentRecipe   Recipe?
+
+  currentHP       Int            @default(100)
+  maxHP           Int            @default(100)
+  lastMaintenance DateTime       @default(now())
+}
+
+type WorkSlot {
+  survivorId String
+  assignedAt DateTime @default(now())
+  efficiency Float @default(1.0)
+}
+
+type Recipe {
+  inputs          RecipeItem[]
+  outputs         RecipeItem[]
+  cycleDuration   Int
+  currentProgress Int          @default(0)
+}
+
+type RecipeItem {
+  resourceType ResourceType
+  quantity     String
+}
+
+type Resource {
+  id       String     @default(uuid())
+  type     ResourceType
+  quantity String     @default("0")
+  weight   Float      @default(0.0)
+}
+
+type HistoryLog {
+  id        String   @default(uuid())
+  gameYear  Int
+  gameMonth Int
+  gameDay   Int
+  gameTick  Int
+  type      EventType
+  eventText String
+  metadata  Json?
+  timestamp DateTime @default(now())
+}
