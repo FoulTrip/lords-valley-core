@@ -15,8 +15,9 @@ const config: Config = {
   rootDir: '.',
   testRegex: '.*\\.spec\\.ts$',
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: { module: 'commonjs', moduleResolution: 'node', target: 'ES2023', esModuleInterop: true, allowSyntheticDefaultImports: true, resolvePackageJsonExports: false, ignoreDeprecations: '6.0' } }],
   },
+  transformIgnorePatterns: ['node_modules/(?!(.*\\.mjs$|@nestjs|@prisma))'],
   moduleNameMapper: pathsToModuleNameMapper(paths, { prefix: '<rootDir>/' }),
   collectCoverageFrom: [
     'src/**/*.(t|j)s',

@@ -30,6 +30,8 @@ export class SettlementDomain {
   private survivors: SurvivorDomain[];
   private inventory: Resource[];
   private eventsTracked: DomainEvent[] = [];
+  private _sizeEstimateBytes: number | null = null;
+  private _sizeTickCounter = 0;
 
   constructor(private readonly rawData: Settlement) {
     this.id = rawData.id;
@@ -125,6 +127,7 @@ export class SettlementDomain {
 
   executeTick(): void {
     this.gameTime += 1;
+    this._sizeTickCounter += 1;
 
     const isWinter = this.season === Season.INVIERNO;
 
@@ -147,6 +150,11 @@ export class SettlementDomain {
     }
 
     this.advanceCalendarTick();
+
+    if (this._sizeTickCounter >= 10) {
+      this._sizeTickCounter = 0;
+      this._sizeEstimateBytes = null;
+    }
   }
 
   private advanceCalendarTick(): void {
@@ -202,11 +210,16 @@ export class SettlementDomain {
   }
 
   getSizeEstimateBytes(): number {
-    return Buffer.byteLength(JSON.stringify(this.rawData), 'utf8');
+    if (this._sizeEstimateBytes !== null) return this._sizeEstimateBytes;
+    this._sizeEstimateBytes = Buffer.byteLength(JSON.stringify(this.rawData), 'utf8');
+    return this._sizeEstimateBytes;
   }
 
   isApproachingBsonLimit(threshold = 10_000_000): boolean {
-    return this.getSizeEstimateBytes() > threshold;
+    if (this._sizeEstimateBytes === null) {
+      this._sizeEstimateBytes = this.getSizeEstimateBytes();
+    }
+    return this._sizeEstimateBytes > threshold;
   }
 
   toPersistenceSnapshot(): Settlement {

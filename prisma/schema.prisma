@@ -116,6 +116,7 @@ enum ResourceType {
   ORO
   PLATA
   COBRE
+  ESTANO
   CUERO
   LANA
   TRIGO
