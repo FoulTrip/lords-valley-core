@@ -41,6 +41,14 @@ export class SettlementController {
     return this.settlementService.create(dto);
   }
 
+  @Get('owner/:ownerId')
+  @ApiOperation({ summary: 'Listar asentamientos por owner', description: '1:N Player -> Settlements indexado por ownerId' })
+  @ApiParam({ name: 'ownerId', description: 'ObjectId del Player' })
+  @ApiOkResponse({ type: [SettlementResponseDto] })
+  async findByOwner(@Param('ownerId') ownerId: string): Promise<SettlementResponseDto[]> {
+    return this.settlementService.findByOwner(ownerId);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Obtener asentamiento por ID' })
   @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
@@ -48,14 +56,6 @@ export class SettlementController {
   @ApiNotFoundResponse({ description: 'Settlement no encontrado' })
   async findOne(@Param('id') id: string): Promise<SettlementResponseDto> {
     return this.settlementService.findById(id);
-  }
-
-  @Get('owner/:ownerId')
-  @ApiOperation({ summary: 'Listar asentamientos por owner', description: '1:N Player -> Settlements indexado por ownerId' })
-  @ApiParam({ name: 'ownerId', description: 'ObjectId del Player' })
-  @ApiOkResponse({ type: [SettlementResponseDto] })
-  async findByOwner(@Param('ownerId') ownerId: string): Promise<SettlementResponseDto[]> {
-    return this.settlementService.findByOwner(ownerId);
   }
 
   @Post(':id/viewport')
@@ -96,6 +96,31 @@ export class SettlementController {
     @Body() dto: UpdatePrioritiesDto,
   ): Promise<SettlementResponseDto> {
     return this.settlementService.updatePriorities(id, dto);
+  }
+
+  @Patch(':id/world-state')
+  @ApiOperation({ summary: 'Actualizar worldState (terrainHeights, farmPlots)', description: 'Persiste estado isométrico por settlement para hidratación cross-device' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  @ApiOkResponse({ type: SettlementResponseDto })
+  async updateWorldState(@Param('id') id: string, @Body() body: { worldState: any; worldSeed?: string }): Promise<SettlementResponseDto> {
+    if (body.worldSeed) {
+      // opcional: si envían worldSeed junto con worldState, actualizar también
+      const domain = await (this.settlementService as any).repository.findById(id);
+      if (domain) {
+        domain.updateWorldSeed(body.worldSeed);
+        await (this.settlementService as any).repository.save(domain);
+      }
+    }
+    return this.settlementService.updateWorldState(id, body.worldState ?? body);
+  }
+
+  @Patch(':id/rename')
+  @ApiOperation({ summary: 'Renombrar asentamiento', description: 'Actualiza nombre del settlement (usado por StartScreen)' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  @ApiOkResponse({ type: SettlementResponseDto })
+  async rename(@Param('id') id: string, @Body() body: { name: string }): Promise<SettlementResponseDto> {
+    if (!body?.name || !body.name.trim()) throw new Error('name requerido');
+    return this.settlementService.rename(id, body.name.trim());
   }
 
   @Post(':id/tick')

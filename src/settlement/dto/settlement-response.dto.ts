@@ -98,6 +98,12 @@ export class SettlementResponseDto {
   @ApiProperty({ example: [] })
   @Expose() historyLog!: unknown[];
 
+  @ApiProperty({ example: 'seed_abc123', nullable: true, required: false })
+  @Expose() worldSeed!: string | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @Expose() worldState!: any;
+
   @ApiProperty()
   @Expose() createdAt!: Date;
 

@@ -56,6 +56,8 @@ export class SettlementRepository {
     name: string;
     ownerId: string;
     tier?: string;
+    worldSeed?: string;
+    worldState?: any;
   }): Promise<SettlementDomain> {
     const qty = (n: number) => (BigInt(n) * BigInt(10) ** BigInt(18)).toString();
     const survivors = [
@@ -83,6 +85,8 @@ export class SettlementRepository {
         stoneTotal: qty(250),
         foodTotal: qty(150),
         waterTotal: qty(800),
+        worldSeed: data.worldSeed ?? `seed_${Date.now().toString(36)}`,
+        worldState: data.worldState ?? {},
         survivors: survivors as any,
         buildings: [
           { id: randomUUID(), type: 'ALMACEN' as any, category: 'ALMACENAMIENTO' as any, level: 1, isOperating: true, productionRate: 1, workSlots: [], maxWorkers: 2, currentHP: 100, maxHP: 100, lastMaintenance: new Date() },
@@ -110,36 +114,51 @@ export class SettlementRepository {
     // Separar cambios de estado vs. nuevos eventos de historia
     const { historyLog, ...settlementData } = snapshot;
 
-    // Actualizar solo los campos que cambiaron en Settlement
-    await this.prisma.settlement.update({
-      where: { id: domainModel.id },
-      data: {
-        gameTime: settlementData.gameTime,
-        currentDay: settlementData.currentDay,
-        currentMonth: settlementData.currentMonth,
-        currentYear: settlementData.currentYear,
-        season: settlementData.season,
-        weather: settlementData.weather,
-        lvyBalance: settlementData.lvyBalance,
-        maxLvyStorage: settlementData.maxLvyStorage,
-        landFertility: settlementData.landFertility,
-        pollutionLevel: settlementData.pollutionLevel,
-        diseaseRisk: settlementData.diseaseRisk,
-        foodPriority: settlementData.foodPriority,
-        defensePriority: settlementData.defensePriority,
-        productionPriority: settlementData.productionPriority,
-        // Actualizar contadores agregados
-        woodTotal: settlementData.woodTotal,
-        stoneTotal: settlementData.stoneTotal,
-        foodTotal: settlementData.foodTotal,
-        waterTotal: settlementData.waterTotal,
-        survivorCount: settlementData.survivorCount,
-        buildingCount: settlementData.buildingCount,
-        // Agregar nueva entrada de historyLog a la colección separada
-        // Mantener los últimos N entradas embebidas para acceso rápido
-        historyLog: snapshot.historyLog as any,
-      },
-    });
+    // Actualizar con retry para evitar deadlock de MongoDB por writes concurrentes rápidos (SimulationEngine cada 2s)
+    const maxRetries = 3;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await this.prisma.settlement.update({
+          where: { id: domainModel.id },
+          data: {
+            gameTime: settlementData.gameTime,
+            currentDay: settlementData.currentDay,
+            currentMonth: settlementData.currentMonth,
+            currentYear: settlementData.currentYear,
+            season: settlementData.season,
+            weather: settlementData.weather,
+            lvyBalance: settlementData.lvyBalance,
+            maxLvyStorage: settlementData.maxLvyStorage,
+            landFertility: settlementData.landFertility,
+            pollutionLevel: settlementData.pollutionLevel,
+            diseaseRisk: settlementData.diseaseRisk,
+            foodPriority: settlementData.foodPriority,
+            defensePriority: settlementData.defensePriority,
+            productionPriority: settlementData.productionPriority,
+            // Actualizar contadores agregados
+            woodTotal: (settlementData as any).woodTotal,
+            stoneTotal: (settlementData as any).stoneTotal,
+            foodTotal: (settlementData as any).foodTotal,
+            waterTotal: (settlementData as any).waterTotal,
+            survivorCount: (settlementData as any).survivorCount,
+            buildingCount: (settlementData as any).buildingCount,
+            worldSeed: (settlementData as any).worldSeed,
+            worldState: (settlementData as any).worldState,
+            // Agregar nueva entrada de historyLog a la colección separada
+            // Mantener los últimos N entradas embebidas para acceso rápido
+            historyLog: snapshot.historyLog as any,
+          },
+        });
+        break;
+      } catch (e: any) {
+        const isDeadlock = e?.message?.includes('write conflict') || e?.message?.includes('deadlock') || e?.code === 'P2034';
+        if (isDeadlock && attempt < maxRetries - 1) {
+          await new Promise((r) => setTimeout(r, 80 * (attempt + 1)));
+          continue;
+        }
+        throw e;
+      }
+    }
 
     // También guardar la entrada de historia en la colección separada
     // Solo guardamos si hay eventos nuevos que no estaban antes

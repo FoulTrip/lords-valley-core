@@ -223,6 +223,10 @@ model Settlement {
 
   // --- FIN NUEVOS CAMPOS ---
 
+  // Persistencia de mundo por settlement (frontend: worldSeed + worldState con terrainHeights/farmPlots)
+  worldSeed        String?       @default("default_seed")
+  worldState       Json?         @default("{}")
+
   // Tipos compuestos embebidos (mantenido para compatibilidad)
   survivors        Survivor[]
   buildings        Building[]

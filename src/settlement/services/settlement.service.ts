@@ -78,4 +78,27 @@ export class SettlementService {
   async delete(id: string): Promise<void> {
     await this.repository.delete(id);
   }
+
+  async updateWorldState(id: string, worldState: any): Promise<SettlementResponseDto> {
+    const domain = await this.repository.findById(id);
+    if (!domain) throw new NotFoundException(`Settlement ${id} not found`);
+    // Merge con existente para no borrar terrainHeights/farmPlots si solo actualiza uno
+    const prev = (domain.getWorldState() as any) || {};
+    const merged = { ...prev, ...worldState };
+    domain.updateWorldState(merged);
+    await this.repository.save(domain);
+    return plainToInstance(SettlementResponseDto, domain.toPersistenceSnapshot(), {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  async rename(id: string, name: string): Promise<SettlementResponseDto> {
+    const domain = await this.repository.findById(id);
+    if (!domain) throw new NotFoundException(`Settlement ${id} not found`);
+    domain.rename(name);
+    await this.repository.save(domain);
+    return plainToInstance(SettlementResponseDto, domain.toPersistenceSnapshot(), {
+      excludeExtraneousValues: true,
+    });
+  }
 }

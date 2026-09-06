@@ -26,6 +26,8 @@ export class SettlementDomain {
   private foodPriority: number;
   private defensePriority: number;
   private productionPriority: number;
+  private worldSeed: string | null;
+  private worldState: any;
 
   private survivors: SurvivorDomain[];
   private inventory: Resource[];
@@ -50,6 +52,8 @@ export class SettlementDomain {
     this.foodPriority = rawData.foodPriority;
     this.defensePriority = rawData.defensePriority;
     this.productionPriority = rawData.productionPriority;
+    this.worldSeed = (rawData as any).worldSeed ?? null;
+    this.worldState = (rawData as any).worldState ?? null;
     this.survivors = rawData.survivors.map((s) => new SurvivorDomain(s));
     this.inventory = (rawData.inventory as Resource[]).map((r) => ({ ...r }));
   }
@@ -203,6 +207,26 @@ export class SettlementDomain {
     });
   }
 
+  updateWorldState(worldState: any): void {
+    this.worldState = worldState;
+  }
+
+  updateWorldSeed(worldSeed: string): void {
+    this.worldSeed = worldSeed;
+  }
+
+  rename(name: string): void {
+    (this.rawData as any).name = name;
+  }
+
+  getWorldSeed(): string | null {
+    return this.worldSeed;
+  }
+
+  getWorldState(): any {
+    return this.worldState;
+  }
+
   pullEvents(): DomainEvent[] {
     const events = [...this.eventsTracked];
     this.eventsTracked = [];
@@ -239,11 +263,13 @@ export class SettlementDomain {
       foodPriority: this.foodPriority,
       defensePriority: this.defensePriority,
       productionPriority: this.productionPriority,
+      worldSeed: this.worldSeed as any,
+      worldState: this.worldState as any,
       survivors: this.rawData.survivors.map((rawS) => {
         const domainS = this.survivors.find((s) => s.id === rawS.id);
         return domainS ? domainS.toPersistence(rawS) : rawS;
       }),
       inventory: this.inventory as any,
-    };
+    } as Settlement;
   }
 }

@@ -13,4 +13,10 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  @Get('health')
+  @ApiOperation({ summary: 'Healthcheck alternativo', description: 'Para probes de frontend (StartScreen)' })
+  getHealth(): { status: string; uptime: number } {
+    return { status: 'ok', uptime: process.uptime() };
+  }
 }

@@ -27,4 +27,13 @@ export class CreateSettlementDto {
   @IsOptional()
   @IsEnum(SettlementTier)
   tier?: SettlementTier;
+
+  @ApiPropertyOptional({ example: 'seed_abc123', description: 'Semilla de mundo isométrico' })
+  @IsOptional()
+  @IsString()
+  worldSeed?: string;
+
+  @ApiPropertyOptional({ description: 'Estado persistente del mundo (terrainHeights, farmPlots)' })
+  @IsOptional()
+  worldState?: any;
 }
