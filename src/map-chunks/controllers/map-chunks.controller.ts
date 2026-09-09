@@ -16,7 +16,7 @@ export class MapChunksController {
   @ApiQuery({ name: 'y', type: Number })
   @ApiResponse({ status: 200, type: ChunkResponseDto })
   async getByCoords(@Query() q: QueryChunkDto): Promise<ChunkResponseDto> {
-    return this.service.getOrCreate(q.x, q.y) as unknown as ChunkResponseDto;
+    return this.service.getOrCreate(q.x, q.y, q.seed) as unknown as ChunkResponseDto;
   }
 
   @Get(':id')
@@ -31,7 +31,7 @@ export class MapChunksController {
   @ApiOperation({ summary: 'Generar bulk chunks' })
   @ApiResponse({ status: 201, type: [ChunkResponseDto] })
   async bulk(@Body() dto: BulkGenerateDto): Promise<ChunkResponseDto[]> {
-    return this.service.generateBulk(dto.chunks) as unknown as ChunkResponseDto[];
+    return this.service.generateBulk(dto.chunks, dto.seed) as unknown as ChunkResponseDto[];
   }
 
   @Patch(':id/explore')

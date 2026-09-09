@@ -6,10 +6,11 @@ import { MapNpcService } from './services/map-npc.service';
 import { MapChunksRepository } from './services/map-chunks.repository';
 import { MapNpcRepository } from './services/map-npc.repository';
 import { ChunkGeneratorService } from './services/chunk-generator.service';
+import { IsometricProjectionService } from './services/isometric-projection.service';
 
 @Module({
   controllers: [MapChunksController, MapNpcController],
-  providers: [MapChunksService, MapNpcService, MapChunksRepository, MapNpcRepository, ChunkGeneratorService],
-  exports: [MapChunksService, MapNpcService],
+  providers: [MapChunksService, MapNpcService, MapChunksRepository, MapNpcRepository, ChunkGeneratorService, IsometricProjectionService],
+  exports: [MapChunksService, MapNpcService, IsometricProjectionService],
 })
 export class MapChunksModule {}

@@ -1,6 +1,6 @@
-import { IsArray, IsInt, ValidateNested } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class QueryChunkDto {
   @ApiProperty({ example: 0, description: 'chunkX' })
@@ -12,6 +12,11 @@ export class QueryChunkDto {
   @IsInt()
   @Type(() => Number)
   y!: number;
+
+  @ApiPropertyOptional({ example: 'seed_abc123', description: 'Semilla del mundo: los tiles son deterministas por seed' })
+  @IsOptional()
+  @IsString()
+  seed?: string;
 }
 
 export class ChunkCoordDto {
@@ -32,4 +37,9 @@ export class BulkGenerateDto {
   @ValidateNested({ each: true })
   @Type(() => ChunkCoordDto)
   chunks!: ChunkCoordDto[];
+
+  @ApiPropertyOptional({ example: 'seed_abc123', description: 'Semilla del mundo para todo el lote' })
+  @IsOptional()
+  @IsString()
+  seed?: string;
 }

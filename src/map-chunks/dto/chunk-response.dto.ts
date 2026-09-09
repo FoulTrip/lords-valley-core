@@ -11,6 +11,9 @@ export class ChunkResponseDto {
   @ApiProperty({ example: 0 })
   @Expose() chunkY!: number;
 
+  @ApiProperty({ example: 'seed_abc123', description: 'Semilla del mundo de este chunk' })
+  @Expose() seed!: string;
+
   @ApiProperty({ description: '32x32 matriz GID' })
   @Expose() tiles!: number[][];
 

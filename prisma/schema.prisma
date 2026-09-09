@@ -246,6 +246,9 @@ model Settlement {
 
 model GlobalMapChunk {
   id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  // Semilla del mundo: el mismo (x,y) en mundos distintos son chunks distintos.
+  // Fuente única de verdad del terreno (el frontend renderiza estos tiles).
+  seed        String   @default("default_seed")
   chunkX      Int
   chunkY      Int
   tiles       Json
@@ -255,7 +258,7 @@ model GlobalMapChunk {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([chunkX, chunkY])
+  @@unique([seed, chunkX, chunkY])
   @@index([settledBy])
   @@index([isExplored])
 }

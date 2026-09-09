@@ -65,7 +65,7 @@ async function main() {
   if (generator) {
     for (let x = -1; x <= 1; x++) {
       for (let y = -1; y <= 1; y++) {
-        const exists = await prisma.globalMapChunk.findUnique({ where: { chunkX_chunkY: { chunkX: x, chunkY: y } } });
+        const exists = await prisma.globalMapChunk.findUnique({ where: { seed_chunkX_chunkY: { seed: 'default_seed', chunkX: x, chunkY: y } } });
         if (!exists) {
           const { tiles, resources } = generator.generate(x, y);
           await prisma.globalMapChunk.create({ data: { chunkX: x, chunkY: y, tiles: tiles as any, resources: resources as any, isExplored: x === 0 && y === 0 } });

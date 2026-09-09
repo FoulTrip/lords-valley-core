@@ -6,8 +6,8 @@ import { GlobalMapChunk } from '@prisma/client';
 export class MapChunksRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByCoords(chunkX: number, chunkY: number): Promise<GlobalMapChunk | null> {
-    return this.prisma.globalMapChunk.findUnique({ where: { chunkX_chunkY: { chunkX, chunkY } } });
+  async findByCoords(chunkX: number, chunkY: number, seed: string): Promise<GlobalMapChunk | null> {
+    return this.prisma.globalMapChunk.findUnique({ where: { seed_chunkX_chunkY: { seed, chunkX, chunkY } } });
   }
 
   async findById(id: string): Promise<GlobalMapChunk | null> {
@@ -18,8 +18,8 @@ export class MapChunksRepository {
     return this.prisma.globalMapChunk.findMany({ where: { settledBy } });
   }
 
-  async create(data: { chunkX: number; chunkY: number; tiles: unknown; resources: unknown }): Promise<GlobalMapChunk> {
-    return this.prisma.globalMapChunk.create({ data: { chunkX: data.chunkX, chunkY: data.chunkY, tiles: data.tiles as any, resources: data.resources as any } });
+  async create(data: { seed: string; chunkX: number; chunkY: number; tiles: unknown; resources: unknown }): Promise<GlobalMapChunk> {
+    return this.prisma.globalMapChunk.create({ data: { seed: data.seed, chunkX: data.chunkX, chunkY: data.chunkY, tiles: data.tiles as any, resources: data.resources as any } });
   }
 
   async updateExplored(id: string, isExplored: boolean): Promise<GlobalMapChunk> {
