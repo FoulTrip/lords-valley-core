@@ -2,6 +2,7 @@
 /dist
 /node_modules
 /node_modules_corrupted
+/node_modules_corrupted_2
 /build
 
 # Logs
