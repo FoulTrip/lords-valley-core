@@ -19,5 +19,11 @@
     "skipLibCheck": true,
     "strict": true,
     "strictPropertyInitialization": false
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "node_modules_corrupted",
+    "node_modules_corrupted_2",
+    "dist"
+  ]
 }

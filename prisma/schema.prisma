@@ -205,6 +205,9 @@ model Settlement {
   pollutionLevel   Float         @default(0.0)
   diseaseRisk      Float         @default(0.0)
 
+  // Modo de juego: el servidor es la única autoridad (evita cheats via window.__CREATIVE_MODE__)
+  gameMode         String        @default("survival")
+
   // Directivas de automatización
   foodPriority     Int           @default(50)
   defensePriority  Int           @default(30)

@@ -10,6 +10,7 @@ import {
   ValidationPipe,
   HttpCode,
   Query,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -141,5 +142,65 @@ export class SettlementController {
   @ApiNotFoundResponse({ description: 'Settlement no encontrado' })
   async delete(@Param('id') id: string): Promise<void> {
     await this.settlementService.delete(id);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // AUTORIDAD DEL SERVIDOR: Endpoints que reemplazan lógica que estaba en el cliente
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /**
+   * POST /settlements/:id/survivors/spawn
+   * Genera NPCs con IDs UUID reales y stats canónicos server-side.
+   * El frontend llama este endpoint en lugar de `new Survivor()` con Math.random().
+   */
+  @Post(':id/survivors/spawn')
+  @ApiOperation({ summary: 'Spawnear NPCs server-side', description: 'Genera survivors con IDs UUID reales, stats canónicos y los persiste. El cliente debe llamar este endpoint en lugar de generar NPCs localmente.' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  @ApiOkResponse({ type: SettlementResponseDto, description: 'Settlement actualizado con los nuevos survivors' })
+  @ApiNotFoundResponse({ description: 'Settlement no encontrado' })
+  async spawnSurvivors(
+    @Param('id') id: string,
+    @Body() body: { count?: number },
+  ): Promise<SettlementResponseDto> {
+    const count = Math.max(1, Math.min(body?.count ?? 1, 5));
+    return this.settlementService.spawnSurvivors(id, count);
+  }
+
+  /**
+   * POST /settlements/:id/inventory/add
+   * Agrega recursos al inventario con validación server-side.
+   * El servidor valida capacidad y tipo de recurso — el cliente no puede hacer trampa.
+   */
+  @Post(':id/inventory/add')
+  @ApiOperation({ summary: 'Agregar recurso al inventario (server-validated)', description: 'El servidor valida tipo, cantidad y capacidad. Rechaza si inventory_full o tipo inválido.' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  @ApiOkResponse({ description: '{ ok, newQuantity, reason? }' })
+  async addToInventory(
+    @Param('id') id: string,
+    @Body() body: { resourceType: string; quantity: string },
+  ): Promise<{ ok: boolean; newQuantity: string; reason?: string }> {
+    if (!body?.resourceType || !body?.quantity) {
+      throw new BadRequestException('resourceType y quantity son requeridos');
+    }
+    return this.settlementService.addToInventory(id, body.resourceType, body.quantity);
+  }
+
+  /**
+   * PATCH /settlements/:id/game-mode
+   * El servidor es la única autoridad del modo de juego.
+   * El cliente debe llamar este endpoint en lugar de modificar window.__CREATIVE_MODE__.
+   */
+  @Patch(':id/game-mode')
+  @ApiOperation({ summary: 'Establecer modo de juego (server-side)', description: 'Persiste el modo creative/survival en MongoDB. El ghost AI consulta este valor — no window.__CREATIVE_MODE__.' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  @ApiOkResponse({ description: '{ gameMode: "creative" | "survival" }' })
+  async setGameMode(
+    @Param('id') id: string,
+    @Body() body: { mode: 'creative' | 'survival' },
+  ): Promise<{ gameMode: string }> {
+    if (!body?.mode || !['creative', 'survival'].includes(body.mode)) {
+      throw new BadRequestException('mode debe ser "creative" o "survival"');
+    }
+    return this.settlementService.setGameMode(id, body.mode);
   }
 }

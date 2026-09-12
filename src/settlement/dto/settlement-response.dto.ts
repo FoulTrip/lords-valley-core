@@ -104,6 +104,9 @@ export class SettlementResponseDto {
   @ApiProperty({ required: false, nullable: true })
   @Expose() worldState!: any;
 
+  @ApiProperty({ example: 'survival', enum: ['survival', 'creative'], description: 'Modo de juego autoritativo del servidor. El cliente debe leer este valor, no window.__CREATIVE_MODE__.' })
+  @Expose() gameMode!: string;
+
   @ApiProperty()
   @Expose() createdAt!: Date;
 

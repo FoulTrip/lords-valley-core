@@ -10,6 +10,7 @@ import { SimulationModule } from './simulation/simulation.module';
 import { EventsModule } from './events/events.module';
 import { MapChunksModule } from './map-chunks/map-chunks.module';
 import { AuthModule } from './auth/auth.module';
+import { CombatModule } from './combat/combat.module';
 import { BigIntSerializerInterceptor } from './common/interceptors/bigint-serializer.interceptor';
 
 // Observe telemetry desactivado en dev: 401 con placeholder YOUR_APP_KEY (ver logs). Activar solo con env OBSERVE_APP_KEY real.
@@ -27,6 +28,7 @@ import { BigIntSerializerInterceptor } from './common/interceptors/bigint-serial
     SimulationModule,
     EventsModule,
     MapChunksModule,
+    CombatModule,
   ],
   controllers: [AppController],
   providers: [

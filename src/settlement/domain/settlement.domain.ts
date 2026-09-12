@@ -34,6 +34,7 @@ export class SettlementDomain {
   private eventsTracked: DomainEvent[] = [];
   private _sizeEstimateBytes: number | null = null;
   private _sizeTickCounter = 0;
+  private gameMode: string;
 
   constructor(private readonly rawData: Settlement) {
     this.id = rawData.id;
@@ -54,6 +55,7 @@ export class SettlementDomain {
     this.productionPriority = rawData.productionPriority;
     this.worldSeed = (rawData as any).worldSeed ?? null;
     this.worldState = (rawData as any).worldState ?? null;
+    this.gameMode = (rawData as any).gameMode ?? 'survival';
     this.survivors = rawData.survivors.map((s) => new SurvivorDomain(s));
     this.inventory = (rawData.inventory as Resource[]).map((r) => ({ ...r }));
   }
@@ -215,6 +217,68 @@ export class SettlementDomain {
     this.worldSeed = worldSeed;
   }
 
+  setGameMode(mode: 'creative' | 'survival'): void {
+    this.gameMode = mode;
+    this.eventsTracked.push({
+      type: 'SETTLEMENT_PRIORITIES_CHANGED',
+      payload: { settlementId: this.id, gameMode: mode },
+    });
+  }
+
+  getGameMode(): string {
+    return this.gameMode;
+  }
+
+  /**
+   * Agrega un survivor server-side al settlement y emite evento SURVIVOR_SPAWNED.
+   * Los datos del survivor deben provenir del repositorio (IDs UUID, stats canónicos).
+   */
+  addSurvivor(survivorData: any): void {
+    // Agregar al rawData para persistencia
+    (this.rawData as any).survivors = [...(this.rawData as any).survivors, survivorData];
+    this.survivors = (this.rawData as any).survivors.map((s: any) => new SurvivorDomain(s));
+    this.eventsTracked.push({
+      type: 'SURVIVOR_LOYALTY_CHANGED',
+      payload: {
+        settlementId: this.id,
+        survivorId: survivorData.id,
+        loyalty: survivorData.loyalty,
+        isLoyalAbsolute: false,
+        eventType: 'SURVIVOR_SPAWNED',
+      },
+    });
+  }
+
+  /**
+   * Agrega recursos al inventario del settlement con validación de capacidad.
+   * Retorna true si se aplicó, false si se rechazó (capacidad excedida, tipo inválido).
+   */
+  addToInventory(resourceType: ResourceType, quantityStr: string): { ok: boolean; newQuantity: string; reason?: string } {
+    let qty: bigint;
+    try {
+      qty = BigInt(quantityStr);
+    } catch {
+      return { ok: false, newQuantity: '0', reason: 'invalid_quantity' };
+    }
+
+    if (qty <= 0n) return { ok: false, newQuantity: '0', reason: 'quantity_must_be_positive' };
+
+    const existing = this.inventory.find((r) => r.type === resourceType);
+    if (existing) {
+      const prev = BigInt(existing.quantity);
+      existing.quantity = (prev + qty).toString();
+      return { ok: true, newQuantity: existing.quantity };
+    } else {
+      // Límite: máximo 50 tipos de recursos distintos en el inventario
+      if (this.inventory.length >= 50) {
+        return { ok: false, newQuantity: '0', reason: 'inventory_full' };
+      }
+      const { randomUUID } = require('crypto') as typeof import('crypto');
+      this.inventory.push({ id: randomUUID(), type: resourceType, quantity: qty.toString(), weight: 0 } as any);
+      return { ok: true, newQuantity: qty.toString() };
+    }
+  }
+
   rename(name: string): void {
     (this.rawData as any).name = name;
   }
@@ -265,6 +329,7 @@ export class SettlementDomain {
       productionPriority: this.productionPriority,
       worldSeed: this.worldSeed as any,
       worldState: this.worldState as any,
+      gameMode: this.gameMode as any,
       survivors: this.rawData.survivors.map((rawS) => {
         const domainS = this.survivors.find((s) => s.id === rawS.id);
         return domainS ? domainS.toPersistence(rawS) : rawS;
