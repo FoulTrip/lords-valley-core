@@ -11,15 +11,11 @@ import { EventsModule } from './events/events.module';
 import { MapChunksModule } from './map-chunks/map-chunks.module';
 import { AuthModule } from './auth/auth.module';
 import { CombatModule } from './combat/combat.module';
+import { PlayerModule } from './player/player.module';
 import { BigIntSerializerInterceptor } from './common/interceptors/bigint-serializer.interceptor';
-
-// Observe telemetry desactivado en dev: 401 con placeholder YOUR_APP_KEY (ver logs). Activar solo con env OBSERVE_APP_KEY real.
-// import { createObserveModule } from '@nestjs/observe';
-// export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 @Module({
   imports: [
-    // ObserveModule.forRoot({ appKey: process.env.OBSERVE_APP_KEY!, appSecret: process.env.OBSERVE_APP_SECRET!, serviceId: 'lordsvalley-core' }),
     PrismaModule,
     ScheduleModule.forRoot(),
     EventEmitterModule.forRoot(),
@@ -29,6 +25,7 @@ import { BigIntSerializerInterceptor } from './common/interceptors/bigint-serial
     EventsModule,
     MapChunksModule,
     CombatModule,
+    PlayerModule,
   ],
   controllers: [AppController],
   providers: [

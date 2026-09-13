@@ -75,8 +75,4 @@ export class GameEventGateway implements OnGatewayConnection, OnGatewayDisconnec
   emitDeltaToSettlement(settlementId: string, event: string, payload: unknown): void {
     this.server.to(settlementId).emit(event, payload);
   }
-
-  broadcast(event: string, payload: unknown): void {
-    this.server.emit(event, payload);
-  }
 }

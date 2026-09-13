@@ -7,7 +7,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
   imports: [
-    PassportModule,
+    PassportModule.register({ session: false }),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'dev-secret-lordsvalley',
       signOptions: { expiresIn: '7d' },

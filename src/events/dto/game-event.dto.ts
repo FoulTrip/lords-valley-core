@@ -12,12 +12,6 @@ export interface ResourceExtractedDto {
   buildingId?: string;
 }
 
-export interface SettlementTickDto {
-  settlementId: string;
-  gameTime: number;
-  season: string;
-}
-
 export interface ViewportDto {
   minChunkX: number;
   minChunkY: number;

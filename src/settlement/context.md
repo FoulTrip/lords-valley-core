@@ -21,7 +21,6 @@ settlement/
     create-settlement.dto.ts
     update-priorities.dto.ts
     settlement-response.dto.ts
-    survivor.dto.ts
   types/
     settlement.types.ts
 ```

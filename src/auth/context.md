@@ -7,19 +7,19 @@ Registro, login y emisión JWT enlazando `Player` con `Settlement` 1:N. Stateles
 ```
 auth/
   context.md
-  auth.module.ts
+  auth.module.ts (`PassportModule.register({ session: false })` para el guard JWT)
   controllers/auth.controller.ts
   services/auth.service.ts
   strategies/jwt.strategy.ts
   guards/jwt-auth.guard.ts
-  dto/register.dto.ts
-  dto/login.dto.ts
+  dto/register.dto.ts (`RegisterDto` + `LoginDto`)
 ```
 
 ## Flujo
 - `POST /auth/register` {email,username,password} → bcrypt hash → `prisma.player.create` → JWT.
 - `POST /auth/login` → verifica hash → JWT `{sub: player.id, email}`.
-- Guard `JwtAuthGuard` para `POST /settlements`, `GET /settlements/owner/:ownerId`. No bloquea lectura pública de chunks.
+- `JwtAuthGuard` protege `player/me/*` (inventario y habilidades del jugador). El resto de endpoints sigue público.
+- `PATCH /auth/player/:id/settings` ignora la clave `game` (estado servidor del módulo `player`); `PATCH pos` valida números finitos.
 - Frontend guarda `access_token` en `localStorage`, `axios` interceptor `Authorization: Bearer`.
 
 ## Seguridad

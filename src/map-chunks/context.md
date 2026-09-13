@@ -24,7 +24,7 @@ map-chunks/
 - `isExplored` false por defecto, `settledBy` ObjectId opcional indexado.
 
 ## Generación
-`ChunkGeneratorService.generate(chunkX, chunkY, seed)` determinista via `sin(seed+ x*374761 + y*668265261)`. Distribución: 70% grass, 15% dirt, 10% forest, 5% rock. Recursos aleatorios ponderados.
+`ChunkGeneratorService.generate(chunkX, chunkY, seed)` determinista. Ver `MINERAL_CONFIGS` y consts `TILE_*` en el servicio para la distribución vigente.
 
 ## Endpoints
 - `GET /map/chunks?x=0&y=0` → genera si no existe (lazy), cachea.

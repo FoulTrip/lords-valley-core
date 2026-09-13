@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
@@ -36,12 +36,17 @@ export class AuthService {
   }
 
   async updateSettings(id: string, settings: any) {
-    const player = await this.prisma.player.update({ where: { id }, data: { settings } });
-    const { passwordHash, ...safe } = player;
-    return safe;
+    const safe = { ...((settings as Record<string, unknown> | null) ?? {}) };
+    delete safe.game;
+    const player = await this.prisma.player.update({ where: { id }, data: { settings: safe as never } });
+    const { passwordHash, ...rest } = player;
+    return rest;
   }
 
   async updateLastPos(id: string, pos: { x: number; y: number }) {
+    if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) {
+      throw new BadRequestException('Posición inválida');
+    }
     const player = await this.prisma.player.findUnique({ where: { id } });
     if (!player) throw new Error('Player not found');
     const currentSettings = (player.settings as any) || {};
