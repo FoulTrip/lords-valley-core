@@ -1,5 +1,8 @@
 import type { SchoolId } from './item-catalog';
 
+/** Nivel máximo de habilidad (FullMode lo otorga a las 48). */
+export const MAX_SKILL_LEVEL = 100;
+
 export const SKILL_IDS: Record<SchoolId, string[]> = {
   supervivencia: [
     'sup_rastreo',

@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AddItemDto, StackIdDto, TrainDto } from './dto/player.dto';
+import { AddItemDto, GodModeDto, SpawnAllowDto, StackIdDto, TrainDto } from './dto/player.dto';
 import { PlayerService } from './player.service';
 
 @ApiTags('player')
@@ -45,5 +45,29 @@ export class PlayerController {
   @ApiOperation({ summary: 'Entrenar escuela o habilidad (+10 XP, consume 1 pergamino en servidor)' })
   train(@Request() req: { user: { id: string } }, @Body() dto: TrainDto) {
     return this.player.train(req.user.id, dto);
+  }
+
+  @Get('me/dev')
+  @ApiOperation({ summary: 'Estado dev del jugador (godMode)' })
+  dev(@Request() req: { user: { id: string } }) {
+    return this.player.getDev(req.user.id);
+  }
+
+  @Post('me/dev/godmode')
+  @ApiOperation({ summary: 'Activa/desactiva GodMode (inmunidad validada por el servidor)' })
+  godmode(@Request() req: { user: { id: string } }, @Body() dto: GodModeDto) {
+    return this.player.setGodMode(req.user.id, dto.on);
+  }
+
+  @Post('me/dev/fullmode')
+  @ApiOperation({ summary: 'FullMode: nivel máximo en las 48 habilidades del pentagrama' })
+  fullmode(@Request() req: { user: { id: string } }) {
+    return this.player.grantFullMode(req.user.id);
+  }
+
+  @Post('me/dev/spawn-allow')
+  @ApiOperation({ summary: 'Valida un comando create/spawn de la consola antes de emitirlo a Phaser' })
+  spawnAllow(@Body() dto: SpawnAllowDto) {
+    return this.player.allowSpawn(dto.kind, dto.count);
   }
 }

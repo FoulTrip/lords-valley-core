@@ -12,6 +12,20 @@ export class SpawnGhostDto {
   @Min(1)
   @Max(3)
   count?: number;
+
+  @ApiProperty({ description: 'Base X sugerida por el cliente (coords iso del mapa 0..12288). El servidor dispersa alrededor y sigue siendo autoridad de la posición final.', required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(13000)
+  baseX?: number;
+
+  @ApiProperty({ description: 'Base Y sugerida por el cliente (coords iso del mapa 0..6144).', required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(7000)
+  baseY?: number;
 }
 
 export class GhostDamageDto {
@@ -98,4 +112,89 @@ export class PlayerDamageResultDto {
   targetId!: string;
   settlementId!: string;
   rejectedReason?: string;
+  /** HP autoritativo tras el golpe (el cliente lo sincroniza, nunca lo calcula) */
+  targetHp?: number;
+  targetMaxHp?: number;
+  isDead?: boolean;
+}
+
+/** Golpe genérico reportado por el cliente; el servidor valida y decreta */
+export class CombatHitDto {
+  @ApiProperty({ description: 'ID del atacante' })
+  @IsString()
+  attackerId!: string;
+
+  @ApiProperty({ description: 'Tipo de atacante: player | survivor | dead-dragon | ghost' })
+  @IsString()
+  attackerKind!: string;
+
+  @ApiProperty({ description: 'ID del objetivo' })
+  @IsString()
+  targetId!: string;
+
+  @ApiProperty({ description: 'Tipo de objetivo: player | survivor | dead-dragon | ghost' })
+  @IsString()
+  targetKind!: string;
+
+  @ApiProperty({ description: 'Posición X reportada del atacante' })
+  @IsNumber()
+  attackerX!: number;
+
+  @ApiProperty({ description: 'Posición Y reportada del atacante' })
+  @IsNumber()
+  attackerY!: number;
+
+  @ApiProperty({ description: 'Posición X reportada del objetivo' })
+  @IsNumber()
+  targetX!: number;
+
+  @ApiProperty({ description: 'Posición Y reportada del objetivo' })
+  @IsNumber()
+  targetY!: number;
+
+  @ApiProperty({ description: 'ID del settlement' })
+  @IsString()
+  settlementId!: string;
+
+  @ApiProperty({ description: 'Monto solo para atacante player (acotado a 200)', required: false })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(500)
+  amount?: number;
+}
+
+/** Resultado autoritativo de un golpe genérico */
+export class CombatHitResultDto {
+  applied!: boolean;
+  damage!: number;
+  targetId!: string;
+  /** Lo añade el gateway al emitir (eco del dto) para que el cliente enrute */
+  targetKind?: string;
+  targetHp!: number;
+  targetMaxHp!: number;
+  isDead!: boolean;
+  rejectedReason?: string;
+}
+
+/** Muerte confirmada por el servidor (broadcast al room) */
+export class CombatDiedDto {
+  targetId!: string;
+  targetKind!: string;
+  settlementId!: string;
+}
+
+/** Respawn: el cliente avisa tras reaparecer; el servidor restaura HP lleno */
+export class RespawnDto {
+  @ApiProperty({ description: 'ID de la entidad que reaparece' })
+  @IsString()
+  entityId!: string;
+
+  @ApiProperty({ description: 'Tipo: player | survivor | dead-dragon | ghost' })
+  @IsString()
+  kind!: string;
+
+  @ApiProperty({ description: 'ID del settlement' })
+  @IsString()
+  settlementId!: string;
 }

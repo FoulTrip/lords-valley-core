@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import {
+  CombatHitResultDto,
   GhostStateDto,
   GhostDamageResultDto,
   PlayerDamageResultDto,
@@ -9,6 +10,9 @@ import {
 /** Distancia máxima aceptable entre atacante y ghost (px en mundo iso) */
 const MAX_ATTACK_DISTANCE = 150;
 
+/** Distancia máxima aceptable en reportes melee genéricos (posiciones del cliente) */
+const MAX_MELEE_DISTANCE = 250;
+
 /** Cooldown mínimo entre ataques del mismo atacante al mismo ghost (ms) */
 const ATTACK_COOLDOWN_MS = 800;
 
@@ -16,13 +20,40 @@ const ATTACK_COOLDOWN_MS = 800;
 const MAX_DAMAGE_PER_HIT = 200;
 
 /**
+ * Dimensiones del mundo iso del cliente (WORLD_TILES=192, rombo 64x32).
+ * El servidor acota aquí las bases de spawn sugeridas por el cliente.
+ */
+const ISO_WORLD_W = 12288;
+const ISO_WORLD_H = 6144;
+
+/**
+ * Estadísticas canónicas de combate. El servidor es la única autoridad:
+ * el cliente nunca decide daño, HP máximo ni muerte.
+ */
+export const COMBAT_STATS = {
+  survivor: { maxHp: 200, maxEnergia: 50, damage: 10, cooldownMs: 1500 },
+  'dead-dragon': { maxHp: 1500, maxEnergia: 900, damage: 500, cooldownMs: 2000 },
+  ghost: { maxHp: 600, maxEnergia: 100, damage: 50, cooldownMs: 1200 },
+  player: { maxHp: 200, maxEnergia: 100, cooldownMs: 800 },
+} as const;
+
+export type CombatEntityKind = keyof typeof COMBAT_STATS;
+
+/** Daño base canónico por atacante (el player reporta monto, acotado a 200). */
+const ATTACKER_DAMAGE: Partial<Record<CombatEntityKind, number>> = {
+  survivor: COMBAT_STATS.survivor.damage,
+  'dead-dragon': COMBAT_STATS['dead-dragon'].damage,
+  ghost: COMBAT_STATS.ghost.damage,
+};
+
+/**
  * Estadísticas canónicas de un Ghost según el servidor.
  * Estos valores NO pueden ser modificados por el cliente.
  */
-const GHOST_CANON_MAX_HP = 600;
-const GHOST_CANON_MAX_ENERGIA = 100;
-const GHOST_CANON_DAMAGE_TO_PLAYER = 15;
-const GHOST_CANON_ATTACK_COOLDOWN_MS = 1200;
+const GHOST_CANON_MAX_HP = COMBAT_STATS.ghost.maxHp;
+const GHOST_CANON_MAX_ENERGIA = COMBAT_STATS.ghost.maxEnergia;
+const GHOST_CANON_DAMAGE_TO_PLAYER = COMBAT_STATS.ghost.damage;
+const GHOST_CANON_ATTACK_COOLDOWN_MS = COMBAT_STATS.ghost.cooldownMs;
 
 interface GhostRecord {
   id: string;
@@ -64,8 +95,46 @@ export class CombatService {
   private readonly ghostAttackCooldowns = new Map<string, AttackRecord>();
 
   /**
+   * Registro autoritativo de HP para entidades de combate genéricas
+   * (player, survivor, dead-dragon). Los ghosts viven en su propio mapa
+   * con posición; aquí solo importa el HP para decidir daño y muerte.
+   * Registro perezoso: la primera vez que una entidad es objetivo se crea
+   * con HP lleno canónico — el cliente nunca fija HP máximo.
+   */
+  private readonly entities = new Map<
+    string,
+    { kind: CombatEntityKind; hp: number; maxHp: number; settlementId: string; dead: boolean }
+  >();
+
+  /** Cooldowns de combat:hit: key = `${attackerId}:${targetId}` */
+  private readonly hitCooldowns = new Map<string, AttackRecord>();
+
+  private getOrRegisterEntity(
+    id: string,
+    kind: CombatEntityKind,
+    settlementId: string,
+  ): { kind: CombatEntityKind; hp: number; maxHp: number; settlementId: string; dead: boolean } {
+    let rec = this.entities.get(id);
+    if (!rec) {
+      const maxHp =
+        kind === 'player'
+          ? COMBAT_STATS.player.maxHp
+          : kind === 'survivor'
+            ? COMBAT_STATS.survivor.maxHp
+            : COMBAT_STATS['dead-dragon'].maxHp;
+      rec = { kind, hp: maxHp, maxHp, settlementId, dead: false };
+      this.entities.set(id, rec);
+    }
+    return rec;
+  }
+
+  /**
    * Spawna 1-3 ghosts para un settlement.
    * Retorna el estado autoritativo de cada ghost creado.
+   *
+   * La posición final SIEMPRE la genera el servidor (dispersión alrededor de
+   * la base). El cliente solo puede *sugerir* una base en coords iso del mapa
+   * (mundo 12288x6144); sin base se usa el centro legacy (3072,3072).
    */
   spawnGhosts(settlementId: string, count = 1, basePosition?: { x: number; y: number }): GhostStateDto[] {
     const clamped = Math.max(1, Math.min(3, count));
@@ -74,9 +143,13 @@ export class CombatService {
     for (let i = 0; i < clamped; i++) {
       const id = `ghost_${randomUUID()}`;
 
-      // Posición de spawn: cerca del centro del settlement si no se provee
-      const cx = basePosition?.x ?? 3072;
-      const cy = basePosition?.y ?? 3072;
+      // Posición de spawn: base sugerida (acotada al mundo iso) o centro legacy
+      const cx = Number.isFinite(basePosition?.x)
+        ? Math.max(0, Math.min(ISO_WORLD_W, Math.round(basePosition!.x)))
+        : 3072;
+      const cy = Number.isFinite(basePosition?.y)
+        ? Math.max(0, Math.min(ISO_WORLD_H, Math.round(basePosition!.y)))
+        : 3072;
       const angle = Math.random() * Math.PI * 2;
       const radius = 200 + Math.random() * 300;
       const positionX = Math.round(cx + Math.cos(angle) * radius);
@@ -182,15 +255,30 @@ export class CombatService {
     targetY: number,
     settlementId: string,
     gameMode: string,
+    godMode = false,
   ): PlayerDamageResultDto {
     // En modo creativo el servidor NO confirma daño al jugador
     if (gameMode === 'creative') {
       return { applied: false, amount: 0, targetId, settlementId, rejectedReason: 'creative_mode' };
     }
 
+    // GodMode (POST /player/me/dev/godmode): el jugador es inmune al daño
+    if (godMode === true) {
+      return { applied: false, amount: 0, targetId, settlementId, rejectedReason: 'god_mode' };
+    }
+
     const ghost = this.ghosts.get(ghostId);
     if (!ghost || ghost.isDead) {
       return { applied: false, amount: 0, targetId, settlementId, rejectedReason: 'ghost_not_found_or_dead' };
+    }
+
+    // HP autoritativo del jugador: si ya murió, se rechaza hasta que reaparezca
+    const playerRec = this.getOrRegisterEntity(targetId, 'player', settlementId);
+    if (playerRec.dead || playerRec.hp <= 0) {
+      return {
+        applied: false, amount: 0, targetId, settlementId,
+        rejectedReason: 'target_dead', targetHp: 0, targetMaxHp: playerRec.maxHp, isDead: true,
+      };
     }
 
     // Validar distancia ghost → target
@@ -212,6 +300,10 @@ export class CombatService {
     ghost.energia = Math.max(0, ghost.energia - 5);
     this.ghostAttackCooldowns.set(cooldownKey, { lastAttackTime: now });
 
+    // Aplicar daño al HP autoritativo del jugador
+    playerRec.hp = Math.max(0, playerRec.hp - GHOST_CANON_DAMAGE_TO_PLAYER);
+    if (playerRec.hp <= 0) playerRec.dead = true;
+
     this.logger.debug(`Ghost ${ghostId} attacked ${targetId} for ${GHOST_CANON_DAMAGE_TO_PLAYER} dmg`);
 
     return {
@@ -219,7 +311,178 @@ export class CombatService {
       amount: GHOST_CANON_DAMAGE_TO_PLAYER,
       targetId,
       settlementId,
+      targetHp: playerRec.hp,
+      targetMaxHp: playerRec.maxHp,
+      isDead: playerRec.dead,
     };
+  }
+
+  /**
+   * Golpe genérico validado por el servidor (player/survivor/dead-dragon/ghost
+   * contra player/survivor/dead-dragon/ghost).
+   * El servidor decide daño (canónico por atacante; el player reporta monto
+   * acotado a 200), valida distancia y cooldown, y decreta HP y muerte.
+   */
+  applyCombatHit(input: {
+    attackerId: string;
+    attackerKind: string;
+    targetId: string;
+    targetKind: string;
+    attackerX: number;
+    attackerY: number;
+    targetX: number;
+    targetY: number;
+    settlementId: string;
+    amount?: number;
+  }): CombatHitResultDto {
+    const attackerKind = input.attackerKind as CombatEntityKind;
+    const targetKind = input.targetKind as CombatEntityKind;
+    if (!COMBAT_STATS[attackerKind] || !COMBAT_STATS[targetKind]) {
+      return {
+        applied: false, damage: 0, targetId: input.targetId,
+        targetHp: 0, targetMaxHp: 0, isDead: true, rejectedReason: 'unknown_kind',
+      };
+    }
+
+    // Objetivo ghost: vive en el mapa con posición servidora (validación fuerte)
+    if (targetKind === 'ghost') {
+      const ghost = this.ghosts.get(input.targetId);
+      if (!ghost || ghost.isDead) {
+        return {
+          applied: false, damage: 0, targetId: input.targetId,
+          targetHp: 0, targetMaxHp: COMBAT_STATS.ghost.maxHp, isDead: true,
+          rejectedReason: 'ghost_not_found_or_dead',
+        };
+      }
+      const dist = Math.hypot(input.attackerX - ghost.positionX, input.attackerY - ghost.positionY);
+      if (dist > MAX_ATTACK_DISTANCE) {
+        return {
+          applied: false, damage: 0, targetId: input.targetId,
+          targetHp: ghost.hp, targetMaxHp: ghost.maxHp, isDead: false,
+          rejectedReason: 'attacker_too_far',
+        };
+      }
+      const now = Date.now();
+      const cdKey = `${input.attackerId}:${input.targetId}`;
+      const last = this.hitCooldowns.get(cdKey);
+      const cdMs = COMBAT_STATS[attackerKind].cooldownMs;
+      if (last && now - last.lastAttackTime < cdMs) {
+        return {
+          applied: false, damage: 0, targetId: input.targetId,
+          targetHp: ghost.hp, targetMaxHp: ghost.maxHp, isDead: false,
+          rejectedReason: 'cooldown_not_met',
+        };
+      }
+      const damage = this.resolveDamage(attackerKind, input.amount);
+      if (damage <= 0) {
+        return {
+          applied: false, damage: 0, targetId: input.targetId,
+          targetHp: ghost.hp, targetMaxHp: ghost.maxHp, isDead: false,
+          rejectedReason: 'invalid_damage',
+        };
+      }
+      ghost.hp = Math.max(0, ghost.hp - damage);
+      this.hitCooldowns.set(cdKey, { lastAttackTime: now });
+      if (ghost.hp <= 0) {
+        ghost.isDead = true;
+        this.ghosts.delete(input.targetId);
+      }
+      return {
+        applied: true, damage, targetId: input.targetId,
+        targetHp: ghost.hp, targetMaxHp: ghost.maxHp, isDead: ghost.isDead,
+      };
+    }
+
+    // Atacante ghost: el servidor conoce su posición (validación fuerte)
+    let ax = input.attackerX;
+    let ay = input.attackerY;
+    if (attackerKind === 'ghost') {
+      const ghost = this.ghosts.get(input.attackerId);
+      if (!ghost || ghost.isDead) {
+        const rec = this.getOrRegisterEntity(input.targetId, targetKind, input.settlementId);
+        return {
+          applied: false, damage: 0, targetId: input.targetId,
+          targetHp: rec.hp, targetMaxHp: rec.maxHp, isDead: rec.dead,
+          rejectedReason: 'ghost_not_found_or_dead',
+        };
+      }
+      ax = ghost.positionX;
+      ay = ghost.positionY;
+    }
+    const dist = Math.hypot(ax - input.targetX, ay - input.targetY);
+    if (dist > MAX_MELEE_DISTANCE) {
+      const rec = this.getOrRegisterEntity(input.targetId, targetKind, input.settlementId);
+      return {
+        applied: false, damage: 0, targetId: input.targetId,
+        targetHp: rec.hp, targetMaxHp: rec.maxHp, isDead: rec.dead,
+        rejectedReason: 'attacker_too_far',
+      };
+    }
+
+    const now = Date.now();
+    const cdKey = `${input.attackerId}:${input.targetId}`;
+    const last = this.hitCooldowns.get(cdKey);
+    const cdMs = COMBAT_STATS[attackerKind].cooldownMs;
+    if (last && now - last.lastAttackTime < cdMs) {
+      const rec = this.getOrRegisterEntity(input.targetId, targetKind, input.settlementId);
+      return {
+        applied: false, damage: 0, targetId: input.targetId,
+        targetHp: rec.hp, targetMaxHp: rec.maxHp, isDead: rec.dead,
+        rejectedReason: 'cooldown_not_met',
+      };
+    }
+
+    const damage = this.resolveDamage(attackerKind, input.amount);
+    if (damage <= 0) {
+      const rec = this.getOrRegisterEntity(input.targetId, targetKind, input.settlementId);
+      return {
+        applied: false, damage: 0, targetId: input.targetId,
+        targetHp: rec.hp, targetMaxHp: rec.maxHp, isDead: rec.dead,
+        rejectedReason: 'invalid_damage',
+      };
+    }
+
+    const rec = this.getOrRegisterEntity(input.targetId, targetKind, input.settlementId);
+    if (rec.dead || rec.hp <= 0) {
+      return {
+        applied: false, damage: 0, targetId: input.targetId,
+        targetHp: 0, targetMaxHp: rec.maxHp, isDead: true,
+        rejectedReason: 'target_dead',
+      };
+    }
+    rec.hp = Math.max(0, rec.hp - damage);
+    this.hitCooldowns.set(cdKey, { lastAttackTime: now });
+    if (rec.hp <= 0) rec.dead = true;
+    return {
+      applied: true, damage, targetId: input.targetId,
+      targetHp: rec.hp, targetMaxHp: rec.maxHp, isDead: rec.dead,
+    };
+  }
+
+  private resolveDamage(attackerKind: CombatEntityKind, amount?: number): number {
+    const canon = ATTACKER_DAMAGE[attackerKind];
+    if (typeof canon === 'number') return canon;
+    // El player reporta su monto; el servidor lo acota (diseño existente de ghost:damage)
+    return Math.max(0, Math.min(Math.floor(amount ?? 0), MAX_DAMAGE_PER_HIT));
+  }
+
+  /** Reaparece una entidad con HP lleno (respawn del player tras morir). */
+  respawnEntity(
+    entityId: string,
+    kind: CombatEntityKind,
+    settlementId: string,
+  ): { entityId: string; hp: number; maxHp: number } {
+    const rec = this.getOrRegisterEntity(entityId, kind, settlementId);
+    rec.hp = rec.maxHp;
+    rec.dead = false;
+    return { entityId, hp: rec.hp, maxHp: rec.maxHp };
+  }
+
+  /** Limpia el registro de un settlement (cleanup). */
+  clearSettlementEntities(settlementId: string): void {
+    for (const [id, rec] of this.entities.entries()) {
+      if (rec.settlementId === settlementId) this.entities.delete(id);
+    }
   }
 
   /** Actualiza la posición del ghost en el registro del servidor */

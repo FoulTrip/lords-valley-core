@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class AddItemDto {
   @IsOptional()
@@ -27,4 +27,19 @@ export class TrainDto {
   @IsOptional()
   @IsString()
   skillId?: string;
+}
+
+export class GodModeDto {
+  @IsBoolean()
+  on!: boolean;
+}
+
+export class SpawnAllowDto {
+  @IsString()
+  kind!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  count!: number;
 }

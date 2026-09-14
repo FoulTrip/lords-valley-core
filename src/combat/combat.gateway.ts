@@ -11,10 +11,13 @@ import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { CombatService } from './combat.service';
 import { SettlementRepository } from '../settlement/services/settlement.repository';
+import { PrismaService } from '../prisma/prisma.service';
 import {
   SpawnGhostDto,
   GhostDamageDto,
   PlayerAttackedDto,
+  CombatHitDto,
+  RespawnDto,
 } from './dto/ghost.dto';
 
 /**
@@ -39,6 +42,7 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly combatService: CombatService,
     private readonly settlementRepository: SettlementRepository,
+    private readonly prisma: PrismaService,
   ) {}
 
   handleConnection(client: Socket): void {
@@ -66,7 +70,12 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const count = Math.max(1, Math.min(3, dto.count ?? 1));
-    const ghosts = this.combatService.spawnGhosts(dto.settlementId, count);
+    // Base sugerida por el cliente (aleatoria en el mapa); el servidor la acota
+    // y dispersa alrededor — la posición final siempre es autoritativa.
+    const base = typeof dto.baseX === 'number' && typeof dto.baseY === 'number'
+      ? { x: dto.baseX, y: dto.baseY }
+      : undefined;
+    const ghosts = this.combatService.spawnGhosts(dto.settlementId, count, base);
 
     // Hacer broadcast a todos en el settlement room (incluyendo al solicitante)
     this.server.to(dto.settlementId).emit('ghost:spawned', { ghosts, settlementId: dto.settlementId });
@@ -138,11 +147,21 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ): Promise<void> {
     // Obtener el gameMode autoritativo del servidor
     let gameMode = 'survival';
+    let godMode = false;
     try {
       const settlement = await this.settlementRepository.findById(dto.settlementId);
       gameMode = (settlement as any)?.rawData?.gameMode ?? 'survival';
+      // GodMode del dueño del settlement (POST /player/me/dev/godmode)
+      const ownerId = (settlement as any)?.rawData?.ownerId as string | undefined;
+      if (ownerId) {
+        const player = await this.prisma.player.findUnique({ where: { id: ownerId } });
+        const game = (player?.settings as Record<string, unknown> | null)?.game as
+          | { dev?: { godMode?: unknown } }
+          | undefined;
+        godMode = game?.dev?.godMode === true;
+      }
     } catch {
-      // Si falla la consulta, asumir survival (más seguro)
+      // Si falla la consulta, asumir survival sin godmode (más seguro)
     }
 
     const result = this.combatService.processGhostAttackPlayer(
@@ -154,10 +173,69 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       dto.targetY,
       dto.settlementId,
       gameMode,
+      godMode,
     );
 
     // Enviar resultado al cliente que reportó (es el mismo jugador afectado)
     client.emit('player:damage_result', result);
+  }
+
+  /**
+   * Golpe genérico (player/survivor/dead-dragon/ghost contra cualquiera).
+   * El servidor valida kinds, distancia y cooldown, y decreta daño y muerte.
+   *
+   * Emite al reportante: `combat:hit_result`.
+   * Si el objetivo muere, broadcast al room: `combat:died`.
+   */
+  @SubscribeMessage('combat:hit')
+  async handleCombatHit(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() dto: CombatHitDto,
+  ): Promise<void> {
+    const result = this.combatService.applyCombatHit({
+      attackerId: dto.attackerId,
+      attackerKind: dto.attackerKind,
+      targetId: dto.targetId,
+      targetKind: dto.targetKind,
+      attackerX: dto.attackerX,
+      attackerY: dto.attackerY,
+      targetX: dto.targetX,
+      targetY: dto.targetY,
+      settlementId: dto.settlementId,
+      amount: dto.amount,
+    });
+
+    client.emit('combat:hit_result', { ...result, targetKind: dto.targetKind });
+
+    if (result.applied && result.isDead) {
+      const died = { targetId: dto.targetId, targetKind: dto.targetKind, settlementId: dto.settlementId };
+      if (dto.settlementId) {
+        this.server.to(dto.settlementId).emit('combat:died', died);
+      } else {
+        client.emit('combat:died', died);
+      }
+    }
+  }
+
+  /**
+   * El cliente avisa que una entidad reapareció (respawn del player).
+   * El servidor restaura su HP a lleno.
+   *
+   * Emite al reportante: `player:respawned` con el HP restaurado.
+   */
+  @SubscribeMessage('player:respawn')
+  async handleRespawn(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() dto: RespawnDto,
+  ): Promise<void> {
+    const valid = ['player', 'survivor', 'dead-dragon', 'ghost'].includes(dto.kind);
+    if (!valid) return;
+    const res = this.combatService.respawnEntity(
+      dto.entityId,
+      dto.kind as 'player' | 'survivor' | 'dead-dragon' | 'ghost',
+      dto.settlementId,
+    );
+    client.emit('player:respawned', res);
   }
 
   /**

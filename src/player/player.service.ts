@@ -17,7 +17,7 @@ import {
   type SchoolId,
   type SkillState,
 } from './item-catalog';
-import { SKILL_IDS } from './skills-defs';
+import { SKILL_IDS, MAX_SKILL_LEVEL } from './skills-defs';
 
 export interface InventoryStack {
   id: string;
@@ -30,10 +30,25 @@ export interface InventoryStack {
   descripcion?: string;
 }
 
+export interface DevState {
+  godMode: boolean;
+}
+
 export interface GameState {
   inventory: InventoryStack[];
   skills: Record<SchoolId, SkillState[]>;
+  dev: DevState;
 }
+
+/** Consola del juego: kinds de spawn/create válidos y su rango por comando. */
+export const SPAWN_ALLOW_RULES: Record<string, { min: number; max: number }> = {
+  npc: { min: 1, max: 10 },
+  'dead-dragon-ally': { min: 1, max: 5 },
+  'dead-dragon-enemy': { min: 1, max: 5 },
+  ghost: { min: 1, max: 3 },
+};
+
+export type SpawnKind = keyof typeof SPAWN_ALLOW_RULES;
 
 function rid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -51,7 +66,7 @@ function emptySkills(): Record<SchoolId, SkillState[]> {
 }
 
 function emptyState(): GameState {
-  return { inventory: [], skills: emptySkills() };
+  return { inventory: [], skills: emptySkills(), dev: { godMode: false } };
 }
 
 function isValidStack(s: unknown): s is InventoryStack {
@@ -83,8 +98,7 @@ function sanitize(raw: unknown): GameState {
       ...(typeof s.descripcion === 'string' ? { descripcion: s.descripcion } : {}),
     }));
   }
-  if (o.skills && typeof o.skills === 'object') {
-    const skills = o.skills as Record<string, unknown>;
+  if (o.skills && typeof o.skills === 'object') {    const skills = o.skills as Record<string, unknown>;
     for (const school of Object.keys(SKILL_IDS) as SchoolId[]) {
       const validIds = new Set(SKILL_IDS[school]);
       if (!Array.isArray(skills[school])) continue;
@@ -100,6 +114,10 @@ function sanitize(raw: unknown): GameState {
           typeof e.xp === 'number' ? Math.max(0, Math.min(99, Math.floor(e.xp))) : 0;
       }
     }
+  }
+  if (o.dev && typeof o.dev === 'object') {
+    const dev = o.dev as Record<string, unknown>;
+    if (dev.godMode === true) state.dev.godMode = true;
   }
   return state;
 }
@@ -293,5 +311,47 @@ export class PlayerService {
     }
     const saved = await this.save(playerId, settings, state);
     return { inventory: saved.inventory, skills: saved.skills, xp: TRAINING_XP };
+  }
+
+  async getDev(playerId: string): Promise<DevState> {
+    const { state } = await this.load(playerId);
+    return state.dev;
+  }
+
+  async setGodMode(playerId: string, on: boolean): Promise<DevState> {
+    const { state, settings } = await this.load(playerId);
+    state.dev.godMode = on === true;
+    const saved = await this.save(playerId, settings, state);
+    return saved.dev;
+  }
+
+  async grantFullMode(playerId: string) {
+    const { state, settings } = await this.load(playerId);
+    for (const school of Object.keys(SKILL_IDS) as SchoolId[]) {
+      for (const sk of state.skills[school]) {
+        sk.level = MAX_SKILL_LEVEL;
+        sk.xp = 0;
+        sk.unlocked = true;
+      }
+    }
+    const saved = await this.save(playerId, settings, state);
+    return saved.skills;
+  }
+
+  /**
+   * Puerta de validación de la consola: todo comando create/spawn debe pasar
+   * por aquí con JWT antes de que el cliente emita el evento a Phaser.
+   * No persiste nada; solo valida kind + rango.
+   */
+  allowSpawn(kind: string, count: number): { ok: true; kind: string; count: number } {
+    const rule = SPAWN_ALLOW_RULES[kind];
+    if (!rule) {
+      throw new BadRequestException(`Tipo de spawn no reconocido: "${kind}"`);
+    }
+    const n = Math.floor(count);
+    if (!Number.isInteger(n) || n < rule.min || n > rule.max) {
+      throw new BadRequestException(`La cantidad para "${kind}" debe ser un entero del ${rule.min} al ${rule.max}`);
+    }
+    return { ok: true, kind, count: n };
   }
 }

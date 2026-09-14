@@ -108,8 +108,7 @@ describe('PlayerService (autoridad del servidor)', () => {
     await expect(svc.removeStack('p1', 'pl_inexistente')).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('sanea estado corrupto al leer', async () => {
-    const prisma = mockPrisma({
+  it('sanea estado corrupto al leer', async () => {    const prisma = mockPrisma({
       game: {
         inventory: [{ nombre: 'Madera' }, { id: 'x', nombre: 'Madera', categoria: 'Recursos en Bruto', cantidad: 3 }],
         skills: { supervivencia: [{ id: 'hack', level: 999, xp: 999 }] },
@@ -119,5 +118,49 @@ describe('PlayerService (autoridad del servidor)', () => {
     expect(await svc.getInventory('p1')).toHaveLength(1);
     const skills = await svc.getSkills('p1');
     expect(skills.supervivencia.every((s) => s.level === 0 && s.xp === 0)).toBe(true);
+  });
+
+  it('dev inicia con godMode apagado', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never);
+    await expect(svc.getDev('p1')).resolves.toEqual({ godMode: false });
+  });
+
+  it('godmode on/off persiste y se sanea', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never);
+    await expect(svc.setGodMode('p1', true)).resolves.toEqual({ godMode: true });
+    await expect(svc.getDev('p1')).resolves.toEqual({ godMode: true });
+    await expect(svc.setGodMode('p1', false)).resolves.toEqual({ godMode: false });
+    const dirty = mockPrisma({ game: { dev: { godMode: 'si' } } });
+    const svc2 = new PlayerService(dirty as never);
+    await expect(svc2.getDev('p1')).resolves.toEqual({ godMode: false });
+  });
+
+  it('fullmode pone nivel máximo en las 48 habilidades', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never);
+    const skills = await svc.grantFullMode('p1');
+    const all = Object.values(skills).flat();
+    expect(all).toHaveLength(48);
+    for (const sk of all) {
+      expect(sk.level).toBe(100);
+      expect(sk.xp).toBe(0);
+      expect(sk.unlocked).toBe(true);
+    }
+  });
+
+  it('spawn-allow valida kind y rango', () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never);
+    expect(svc.allowSpawn('npc', 10)).toEqual({ ok: true, kind: 'npc', count: 10 });
+    expect(svc.allowSpawn('dead-dragon-ally', 5).ok).toBe(true);
+    expect(svc.allowSpawn('dead-dragon-enemy', 1).ok).toBe(true);
+    expect(svc.allowSpawn('ghost', 3).ok).toBe(true);
+    expect(() => svc.allowSpawn('dragon', 1)).toThrow(BadRequestException);
+    expect(() => svc.allowSpawn('npc', 0)).toThrow(BadRequestException);
+    expect(() => svc.allowSpawn('npc', 11)).toThrow(BadRequestException);
+    expect(() => svc.allowSpawn('dead-dragon-ally', 6)).toThrow(BadRequestException);
+    expect(() => svc.allowSpawn('ghost', 4)).toThrow(BadRequestException);
   });
 });
