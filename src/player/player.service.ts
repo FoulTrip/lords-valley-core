@@ -8,7 +8,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   TRAINING_XP,
   TRAINING_SCROLL_NAMES,
+  describeEffect,
   findCatalogEntry,
+  getConsumableEffect,
+  getItemMeta,
   isStackableCategory,
   maxStackForCategory,
   parseSchool,
@@ -34,11 +37,27 @@ export interface DevState {
   godMode: boolean;
 }
 
+export interface PlayerNeeds {
+  /** 0 = saciado, 100 = hambriento/sediento. */
+  hunger: number;
+  thirst: number;
+  /** Epoch ms de la última actualización del decaimiento. */
+  updatedAt: number;
+}
+
 export interface GameState {
   inventory: InventoryStack[];
   skills: Record<SchoolId, SkillState[]>;
   dev: DevState;
+  needs: PlayerNeeds;
 }
+
+/**
+ * Saciedad: 20% dura 1h -> 100% dura 5h (0->100 en 5h).
+ * 1 punto cada 180s.
+ */
+export const NEEDS_MS_PER_POINT = 180_000;
+export const NEEDS_MAX = 100;
 
 /** Consola del juego: kinds de spawn/create válidos y su rango por comando. */
 export const SPAWN_ALLOW_RULES: Record<string, { min: number; max: number }> = {
@@ -66,7 +85,7 @@ function emptySkills(): Record<SchoolId, SkillState[]> {
 }
 
 function emptyState(): GameState {
-  return { inventory: [], skills: emptySkills(), dev: { godMode: false } };
+  return { inventory: [], skills: emptySkills(), dev: { godMode: false }, needs: { hunger: 0, thirst: 0, updatedAt: Date.now() } };
 }
 
 function isValidStack(s: unknown): s is InventoryStack {
@@ -119,7 +138,64 @@ function sanitize(raw: unknown): GameState {
     const dev = o.dev as Record<string, unknown>;
     if (dev.godMode === true) state.dev.godMode = true;
   }
+  if (o.needs && typeof o.needs === 'object') {
+    const nd = o.needs as Record<string, unknown>;
+    if (typeof nd.hunger === 'number') state.needs.hunger = Math.max(0, Math.min(100, Math.floor(nd.hunger)));
+    if (typeof nd.thirst === 'number') state.needs.thirst = Math.max(0, Math.min(100, Math.floor(nd.thirst)));
+    if (typeof nd.updatedAt === 'number' && Number.isFinite(nd.updatedAt) && nd.updatedAt > 0) {
+      state.needs.updatedAt = Math.floor(nd.updatedAt);
+    }
+  }
   return state;
+}
+
+/**
+ * Decaimiento autoritativo de hambre/sed por tiempo real.
+ * 1 punto cada NEEDS_MS_PER_POINT (180s) -> 100 en 5h.
+ * GodMode congela las necesidades (no decaen).
+ * Retorna true si hubo cambio (el llamador debe persistir).
+ */
+function applyNeedsDecay(state: GameState, now = Date.now()): boolean {
+  if (state.dev.godMode) {
+    if (state.needs.updatedAt !== now) state.needs.updatedAt = now;
+    return true;
+  }
+  if (typeof state.needs.updatedAt !== 'number' || state.needs.updatedAt <= 0) {
+    state.needs.updatedAt = now;
+    return true;
+  }
+  if (now < state.needs.updatedAt) {
+    state.needs.updatedAt = now;
+    return true;
+  }
+  const elapsed = now - state.needs.updatedAt;
+  const points = Math.floor(elapsed / NEEDS_MS_PER_POINT);
+  if (points <= 0) return false;
+  state.needs.hunger = Math.min(NEEDS_MAX, state.needs.hunger + points);
+  state.needs.thirst = Math.min(NEEDS_MAX, state.needs.thirst + points);
+  state.needs.updatedAt = state.needs.updatedAt + points * NEEDS_MS_PER_POINT;
+  // Evita deriva si el reloj saltó mucho: ancla el resto al ahora
+  if (now - state.needs.updatedAt >= NEEDS_MS_PER_POINT) state.needs.updatedAt = now;
+  return true;
+}
+
+function pushEmptyContainer(state: GameState, emptiesTo: string): string | null {
+  const emptyEntry = findCatalogEntry(emptiesTo);
+  if (!emptyEntry) return null;
+  const emptyMeta = getItemMeta(emptyEntry.nombre);
+  pushStack(
+    state,
+    {
+      nombre: emptyEntry.nombre,
+      categoria: emptyEntry.categoria,
+      maxStack: maxStackForCategory(emptyEntry.categoria),
+      stackable: isStackableCategory(emptyEntry.categoria),
+      ...(emptyMeta?.icono ? { icono: emptyMeta.icono } : {}),
+      ...(emptyMeta?.descripcion ? { descripcion: emptyMeta.descripcion } : {}),
+    },
+    1,
+  );
+  return emptyEntry.nombre;
 }
 
 function applySkillXp(list: SkillState[], skillId: string, amount: number): void {
@@ -189,6 +265,22 @@ function consumeByName(state: GameState, nombre: string, qty: number): void {
   state.inventory = state.inventory.filter((s) => s.cantidad > 0);
 }
 
+/**
+ * Consume 1 unidad del stack EXACTO (por id). 9 -> 8 en ese stack;
+ * solo elimina el stack si queda en 0. Nunca toca otros stacks.
+ */
+function consumeOneFromStack(state: GameState, stackId: string): void {
+  const stack = state.inventory.find((s) => s.id === stackId);
+  if (!stack) throw new NotFoundException('Item no encontrado en el inventario');
+  if (!Number.isInteger(stack.cantidad) || stack.cantidad < 1) {
+    throw new BadRequestException('Stack sin unidades disponibles');
+  }
+  stack.cantidad -= 1;
+  if (stack.cantidad <= 0) {
+    state.inventory = state.inventory.filter((s) => s.id !== stackId);
+  }
+}
+
 @Injectable()
 export class PlayerService {
   constructor(private readonly prisma: PrismaService) {}
@@ -209,8 +301,15 @@ export class PlayerService {
   }
 
   async getInventory(playerId: string) {
-    const { state } = await this.load(playerId);
+    const { state, settings } = await this.load(playerId);
+    if (applyNeedsDecay(state)) await this.save(playerId, settings, state);
     return state.inventory;
+  }
+
+  async getNeeds(playerId: string): Promise<PlayerNeeds> {
+    const { state, settings } = await this.load(playerId);
+    if (applyNeedsDecay(state)) await this.save(playerId, settings, state);
+    return { ...state.needs };
   }
 
   async addItem(playerId: string, input: { nombre?: string; escuela?: string; cantidad: number }) {
@@ -224,6 +323,7 @@ export class PlayerService {
       throw new BadRequestException('Envía "nombre" o "escuela" (solo uno)');
     }
     const { state, settings } = await this.load(playerId);
+    applyNeedsDecay(state);
     if (hasEscuela) {
       const school = parseSchool(input.escuela as string);
       if (!school) throw new BadRequestException('Escuela no reconocida');
@@ -242,6 +342,7 @@ export class PlayerService {
     } else {
       const entry = findCatalogEntry(input.nombre as string);
       if (!entry) throw new BadRequestException(`Item "${input.nombre}" no existe en el catálogo`);
+      const meta = getItemMeta(entry.nombre);
       pushStack(
         state,
         {
@@ -249,6 +350,8 @@ export class PlayerService {
           categoria: entry.categoria,
           maxStack: maxStackForCategory(entry.categoria),
           stackable: isStackableCategory(entry.categoria),
+          ...(meta?.icono ? { icono: meta.icono } : {}),
+          ...(meta?.descripcion ? { descripcion: meta.descripcion } : {}),
         },
         qty,
       );
@@ -259,6 +362,7 @@ export class PlayerService {
 
   async useItem(playerId: string, stackId: string) {
     const { state, settings } = await this.load(playerId);
+    applyNeedsDecay(state);
     const stack = state.inventory.find((s) => s.id === stackId);
     if (!stack) throw new NotFoundException('Item no encontrado en el inventario');
     const school = scrollSchoolFromName(stack.nombre);
@@ -266,22 +370,53 @@ export class PlayerService {
       consumeByName(state, stack.nombre, 1);
       applyCategoryXp(state.skills[school], TRAINING_XP);
       const saved = await this.save(playerId, settings, state);
-      return { inventory: saved.inventory, skills: saved.skills, xp: TRAINING_XP, escuela: school };
+      return { inventory: saved.inventory, skills: saved.skills, xp: TRAINING_XP, escuela: school, needs: { ...saved.needs } };
+    }
+    // Consumibles de saciedad: efecto heredado de CONSUMABLE_EFFECTS
+    // (Pan, Odre con Agua y los futuros que añadas al registro).
+    // Consumo PRECISO del stack clicado (stackId): 9 -> 8 garantizado en
+    // ESTE stack, sin tocar otros stacks del mismo item.
+    const consumable = getConsumableEffect(stack.nombre);
+    if (consumable && !consumable.effect.notUsable) {
+      consumeOneFromStack(state, stack.id);
+      if (consumable.effect.hunger) {
+        state.needs.hunger = Math.max(0, state.needs.hunger - consumable.effect.hunger);
+      }
+      if (consumable.effect.thirst) {
+        state.needs.thirst = Math.max(0, state.needs.thirst - consumable.effect.thirst);
+      }
+      state.needs.updatedAt = Date.now();
+      const emptied = consumable.effect.emptiesTo ? pushEmptyContainer(state, consumable.effect.emptiesTo) : null;
+      const saved = await this.save(playerId, settings, state);
+      return {
+        inventory: saved.inventory,
+        skills: saved.skills,
+        xp: 0,
+        escuela: null,
+        needs: { ...saved.needs },
+        effect: describeEffect(consumable.effect, emptied),
+      };
+    }
+    if (consumable?.effect.notUsable) {
+      throw new ForbiddenException(
+        consumable.effect.notUsableMessage ?? `${consumable.nombre} no se puede consumir directamente.`,
+      );
     }
     if (
       stack.categoria === 'Comida y Bebida' ||
       stack.categoria === 'Consumibles Comunes' ||
       stack.categoria === 'Consumibles Magicos'
     ) {
-      consumeByName(state, stack.nombre, 1);
+      consumeOneFromStack(state, stack.id);
       const saved = await this.save(playerId, settings, state);
-      return { inventory: saved.inventory, skills: saved.skills, xp: 0, escuela: null };
+      return { inventory: saved.inventory, skills: saved.skills, xp: 0, escuela: null, needs: { ...saved.needs } };
     }
     throw new ForbiddenException(`${stack.nombre} no tiene un uso directo todavía`);
   }
 
   async removeStack(playerId: string, stackId: string) {
     const { state, settings } = await this.load(playerId);
+    applyNeedsDecay(state);
     const idx = state.inventory.findIndex((s) => s.id === stackId);
     if (idx === -1) throw new NotFoundException('Item no encontrado en el inventario');
     state.inventory.splice(idx, 1);
@@ -290,7 +425,8 @@ export class PlayerService {
   }
 
   async getSkills(playerId: string) {
-    const { state } = await this.load(playerId);
+    const { state, settings } = await this.load(playerId);
+    if (applyNeedsDecay(state)) await this.save(playerId, settings, state);
     return state.skills;
   }
 
@@ -298,6 +434,7 @@ export class PlayerService {
     const school = parseSchool(input.escuela);
     if (!school) throw new BadRequestException('Escuela no reconocida');
     const { state, settings } = await this.load(playerId);
+    applyNeedsDecay(state);
     const scrollName = TRAINING_SCROLL_NAMES[school];
     const total = state.inventory.reduce((a, s) => (s.nombre === scrollName ? a + s.cantidad : a), 0);
     if (total < 1) {
@@ -310,23 +447,31 @@ export class PlayerService {
       applyCategoryXp(state.skills[school], TRAINING_XP);
     }
     const saved = await this.save(playerId, settings, state);
-    return { inventory: saved.inventory, skills: saved.skills, xp: TRAINING_XP };
+    return { inventory: saved.inventory, skills: saved.skills, xp: TRAINING_XP, needs: { ...saved.needs } };
   }
 
   async getDev(playerId: string): Promise<DevState> {
-    const { state } = await this.load(playerId);
+    const { state, settings } = await this.load(playerId);
+    if (applyNeedsDecay(state)) await this.save(playerId, settings, state);
     return state.dev;
   }
 
   async setGodMode(playerId: string, on: boolean): Promise<DevState> {
     const { state, settings } = await this.load(playerId);
     state.dev.godMode = on === true;
+    if (on === true) {
+      // GodMode: inmune a hambre/sed, todo al 100% (saciado = 0)
+      state.needs.hunger = 0;
+      state.needs.thirst = 0;
+    }
+    state.needs.updatedAt = Date.now();
     const saved = await this.save(playerId, settings, state);
     return saved.dev;
   }
 
   async grantFullMode(playerId: string) {
     const { state, settings } = await this.load(playerId);
+    applyNeedsDecay(state);
     for (const school of Object.keys(SKILL_IDS) as SchoolId[]) {
       for (const sk of state.skills[school]) {
         sk.level = MAX_SKILL_LEVEL;

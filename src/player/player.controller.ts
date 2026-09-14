@@ -24,7 +24,7 @@ export class PlayerController {
   }
 
   @Post('me/inventory/use')
-  @ApiOperation({ summary: 'Usar 1 unidad de un stack (pergamino aplica +XP en servidor)' })
+  @ApiOperation({ summary: 'Usar 1 unidad de un stack (pergamino +XP; Pan +20 hambre; Odre con Agua +20 sed y deja Odre vacío)' })
   useItem(@Request() req: { user: { id: string } }, @Body() dto: StackIdDto) {
     return this.player.useItem(req.user.id, dto.stackId);
   }
@@ -39,6 +39,12 @@ export class PlayerController {
   @ApiOperation({ summary: 'Habilidades del jugador autenticado (estado servidor)' })
   skills(@Request() req: { user: { id: string } }) {
     return this.player.getSkills(req.user.id);
+  }
+
+  @Get('me/needs')
+  @ApiOperation({ summary: 'Hambre/sed del jugador (0=saciado, 100=hambriento; 100 en 5h). Aplica decaimiento por tiempo.' })
+  needs(@Request() req: { user: { id: string } }) {
+    return this.player.getNeeds(req.user.id);
   }
 
   @Post('me/skills/train')

@@ -47,8 +47,14 @@ export class SettlementRepository {
       positionY: 3072 + (Math.random() - 0.5) * 300,
       superiorId: null,
       lvyBalance: qty(0),
-      inventory: [{ id: randomUUID(), type: 'HERRAMIENTAS' as any, quantity: qty(1), weight: 2.5 }],
-      maxCarryWeight: 50, currentWeight: 2.5, socialLinks: [],
+      // Inventario personal inicial: herramientas + 10x Pan + 10x Odre con Agua.
+      // Cada unidad sacia 20% (5h de saciedad al 100%) y el NPC auto-consume.
+      inventory: [
+        { id: randomUUID(), type: 'HERRAMIENTAS' as any, quantity: qty(1), weight: 2.5 },
+        { id: randomUUID(), type: 'PAN' as any, quantity: qty(10), weight: 0.3 },
+        { id: randomUUID(), type: 'ODRE_AGUA' as any, quantity: qty(10), weight: 1 },
+      ],
+      maxCarryWeight: 50, currentWeight: 15.5, socialLinks: [],
     };
   }
 
@@ -135,6 +141,11 @@ export class SettlementRepository {
             foodPriority: settlementData.foodPriority,
             defensePriority: settlementData.defensePriority,
             productionPriority: settlementData.productionPriority,
+            // Autoridad del servidor: persistir necesidades/inventarios de NPCs
+            // (hambre/sed 5h + auto-consumo de Pan/Odre). Sin esto los ticks se pierden.
+            survivors: (settlementData as any).survivors,
+            inventory: (settlementData as any).inventory,
+            buildings: (settlementData as any).buildings,
             // Actualizar contadores agregados
             woodTotal: (settlementData as any).woodTotal,
             stoneTotal: (settlementData as any).stoneTotal,

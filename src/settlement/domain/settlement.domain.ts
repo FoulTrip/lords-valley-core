@@ -10,6 +10,8 @@ import { SurvivorDomain } from './survivor.domain';
 import { DomainEvent } from '../types/settlement.types';
 
 export class SettlementDomain {
+  /** Ticks de simulación (2s) por cada punto de hambre/sed. 90 x 2s = 180s = 1 punto -> 100 en 5h. */
+  static readonly METABOLISM_TICKS_PER_POINT = 90;
   readonly id: string;
   private tier: SettlementTier;
   private lvyBalance: bigint;
@@ -112,18 +114,30 @@ export class SettlementDomain {
   }
 
   private tryFeedSurvivor(survivor: SurvivorDomain): void {
+    // 1) Inventario personal primero: efecto heredado de CONSUMABLE_EFFECTS.
+    //    Los NPC comen/beben automáticamente si tienen en su inventario.
+    try {
+      survivor.tryAutoConsumePersonal();
+    } catch {
+      // nunca romper el tick por un inventario corrupto
+    }
+    // 2) Reserva común del asentamiento (fallback con la misma saciedad del 20%).
     const needs = survivor.getNeeds();
     const oneUnit = (BigInt(1) * BigInt(10) ** BigInt(18)).toString();
     if (needs.hunger > 40) {
       if (this.consumeFromInventory(ResourceType.RACIONES_COMIDA, oneUnit)) {
-        survivor.consumeFood(30);
+        survivor.consumeFood(20);
+      } else if (this.consumeFromInventory(ResourceType.PAN, oneUnit)) {
+        survivor.consumeFood(20);
       } else if (this.consumeFromInventory(ResourceType.CARNE, oneUnit) || this.consumeFromInventory(ResourceType.TRIGO, oneUnit) || this.consumeFromInventory(ResourceType.VERDURAS, oneUnit)) {
-        survivor.consumeFood(25);
+        survivor.consumeFood(20);
       }
     }
     if (needs.thirst > 40) {
       if (this.consumeFromInventory(ResourceType.AGUA, oneUnit)) {
-        survivor.consumeWater(30);
+        survivor.consumeWater(20);
+      } else if (this.consumeFromInventory(ResourceType.ODRE_AGUA, oneUnit)) {
+        survivor.consumeWater(20);
       }
     }
     if (needs.fatigue > 70) {
@@ -136,9 +150,12 @@ export class SettlementDomain {
     this._sizeTickCounter += 1;
 
     const isWinter = this.season === Season.INVIERNO;
+    // Metabolismo 5h: 1 punto cada 90 ticks (90 x 2s = 180s). 100 puntos = 5h.
+    const shouldMetabolize = this.gameTime % SettlementDomain.METABOLISM_TICKS_PER_POINT === 0;
 
     for (const survivor of this.survivors) {
       this.tryFeedSurvivor(survivor);
+      if (!shouldMetabolize) continue;
       const result = survivor.applyMetabolismTick(isWinter);
       survivor.applySanityTick(this.pollutionLevel, this.diseaseRisk);
 

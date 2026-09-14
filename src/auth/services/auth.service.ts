@@ -51,7 +51,16 @@ export class AuthService {
     if (!player) throw new Error('Player not found');
     const currentSettings = (player.settings as any) || {};
     const newSettings = { ...currentSettings, lastPos: pos, lastSeen: new Date().toISOString() };
-    return this.updateSettings(id, newSettings);
+    // NO pasar por updateSettings: ese método hace `delete safe.game` por diseño
+    // (Player.settings.game es de escritura exclusiva del servidor, módulo player).
+    // El autoguardado de posición corre cada 5s: si borrara `game`, vaciaría el
+    // inventario y resetearía hambre/sed en cada guardado. Aquí se conserva tal cual.
+    const updated = await this.prisma.player.update({
+      where: { id },
+      data: { settings: newSettings as never },
+    });
+    const { passwordHash, ...rest } = updated;
+    return rest;
   }
 
   private sign(sub: string, email: string): string {
