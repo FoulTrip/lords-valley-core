@@ -22,3 +22,27 @@ export interface ViewportDto {
 export interface JoinSettlementDto {
   settlementId: string;
 }
+
+export interface NpcConversationRequestDto {
+  settlementId: string;
+  initiatorId: string;
+  initiatorName?: string;
+  initiatorJob?: string;
+  targetId: string;
+  targetName?: string;
+  targetJob?: string;
+}
+
+export interface SurvivorConversationEventDto {
+  settlementId: string;
+  dialogueId: string;
+  initiatorId: string;
+  initiatorName: string;
+  initiatorText: string;
+  targetId: string;
+  targetName: string;
+  responderText: string;
+  topic: string;
+  replyDelayMs: number;
+  durationMs: number;
+}
