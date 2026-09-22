@@ -55,6 +55,9 @@ export const ITEM_POOLS: Record<ItemCategory, string[]> = {
   'Recurso Refinado': ['Lingote de Hierro', 'Tablón de Madera', 'Tela Fina', 'Cuero Curtido'],
   'Recursos en Bruto': [
     'Madera', 'Piedra', 'Hierro', 'Hierba', 'Tela', 'Cuero',
+    // Minerales de extracción
+    'Mineral de Cobre', 'Mineral de Estaño', 'Mineral de Hierro', 'Mineral de Plata', 'Mineral de Oro', 'Mineral de Carbón',
+    'Cobre', 'Estaño', 'Plata', 'Oro', 'Carbón',
     // Cosechas de cereales
     'Gavillas de Trigo', 'Mazorcas de Maíz', 'Costales de Arroz',
     // Cosechas de vegetales
