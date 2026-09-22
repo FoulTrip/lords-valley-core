@@ -314,8 +314,8 @@ export class PlayerService {
 
   async addItem(playerId: string, input: { nombre?: string; escuela?: string; cantidad: number }) {
     const qty = Math.floor(input.cantidad);
-    if (!Number.isInteger(qty) || qty < 1 || qty > 9) {
-      throw new BadRequestException('La cantidad debe ser un entero del 1 al 9');
+    if (!Number.isInteger(qty) || qty < 1 || qty > 999) {
+      throw new BadRequestException('La cantidad debe ser un entero del 1 al 999');
     }
     const hasNombre = typeof input.nombre === 'string' && input.nombre.trim().length > 0;
     const hasEscuela = typeof input.escuela === 'string' && input.escuela.trim().length > 0;

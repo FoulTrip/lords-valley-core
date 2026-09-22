@@ -53,7 +53,23 @@ export const ITEM_POOLS: Record<ItemCategory, string[]> = {
   'Consumibles Comunes': ['Venda', 'Antídoto', 'Tónico', 'Ungüento'],
   'Comida y Bebida': ['Pan', 'Carne Seca', 'Manzana', 'Queso', 'Pescado', 'Cerveza', 'Agua', 'Odre con Agua', 'Odre vacío'],
   'Recurso Refinado': ['Lingote de Hierro', 'Tablón de Madera', 'Tela Fina', 'Cuero Curtido'],
-  'Recursos en Bruto': ['Madera', 'Piedra', 'Hierro', 'Hierba', 'Tela', 'Cuero'],
+  'Recursos en Bruto': [
+    'Madera', 'Piedra', 'Hierro', 'Hierba', 'Tela', 'Cuero',
+    // Cosechas de cereales
+    'Gavillas de Trigo', 'Mazorcas de Maíz', 'Costales de Arroz',
+    // Cosechas de vegetales
+    'Cajón de Tomates', 'Saco de Zanahorias', 'Sacos de Patatas', 'Cestas de Coliflor',
+    'Sarta de Chiles', 'Cesta de Champiñones',
+    // Cosechas de frutas
+    'Cestas de Fresas', 'Canastos de Uva', 'Sandías Maduras', 'Melones Amarillos',
+    'Caja de Melocotones', 'Cestos de Cerezas', 'Cesto de Ciruelas', 'Cestas de Limones',
+    'Piñas Maduras', 'Racimos de Banano', 'Racimos de Plátano', 'Cocos Verdes',
+    // Cosechas industriales
+    'Balas de Algodón', 'Cañas Dulces', 'Cuencos de Caucho',
+    'Sacos de Granos de Café', 'Mazorcas de Cacao',
+    // Cosechas especiales
+    'Manojos de Albahaca', 'Rosas Fragantes', 'Flores de Jazmín',
+  ],
   Utiles: ['Hacha', 'Pico', 'Martillo', 'Cuchillo', 'Pala', 'Sierra'],
   Crias: ['Polluelo', 'Cordero', 'Ternero', 'Cerdito', 'Potrillo'],
   Documentos: ['Mapa Antiguo', 'Carta', 'Contrato', 'Diario', 'Plano'],

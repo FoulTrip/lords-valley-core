@@ -11,7 +11,7 @@ export class AddItemDto {
 
   @IsInt()
   @Min(1)
-  @Max(9)
+  @Max(999)
   cantidad!: number;
 }
 
