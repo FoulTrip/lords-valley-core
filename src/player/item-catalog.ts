@@ -65,7 +65,9 @@ const COMIDA_ITEMS = new Set([
   'cajondetomates', 'sacodezanahorias', 'sacosdepatatas', 'cestasdecoliflor', 'sartadechiles', 'cestadechampinones',
   'cestasdefresas', 'canastosdeuva', 'sandiasmaduras', 'melonesamarillos', 'cajademelocotones', 'cestosdecerezas', 'cestodeciruelas', 'cestasdelimones',
   'pinasmaduras', 'racimosdebanano', 'racimosdeplatano', 'cocosverdes',
-  'canasdulces', 'sacosdegranosdecafe', 'mazorcasdecacao', 'manojosdealbahaca'
+  'canasdulces', 'sacosdegranosdecafe', 'mazorcasdecacao', 'manojosdealbahaca',
+  // Compostaje: ambos se almacenan en el Almacén de Comida.
+  'residuovegetal', 'fertilizante',
 ]);
 
 export function getItemWarehouseCategory(nombre: string): WarehouseCategory | null {
@@ -248,8 +250,8 @@ export const ITEM_META: Record<string, ItemMeta> = {
   Tronco: { icono: '🪵', descripcion: 'Tronco en bruto para aserrar.' },
   'Leña': { icono: '🔥', descripcion: 'Madera menuda como combustible.' },
   // Compostaje (del Compostador: 1 Residuo Vegetal → 1 Fertilizante en 60s con granjero)
-  'Residuo Vegetal': { icono: '🍂', descripcion: 'Resto vegetal de cosechas (1-3 por cosecha). Procésalo en un Compostador para fabricar fertilizante.' },
-  'Fertilizante': { icono: '💩', descripcion: 'Abono orgánico producido en el Compostador a partir de residuos vegetales.' },
+  'Residuo Vegetal': { icono: '🍂', descripcion: 'Se obtiene de los cultivos (1-3 por cosecha). Se usa para fabricar fertilizante en el Compostador.' },
+  'Fertilizante': { icono: '💩', descripcion: 'Abono orgánico: +10% de eficiencia del cultivo por uso (máx 5 usos acumulables). Reduce el tiempo de crecimiento y aumenta la cosecha.' },
 };
 
 export function getItemMeta(nombre: string): ItemMeta | null {
@@ -707,4 +709,44 @@ export function sanitizeSockets(raw: unknown): EquipmentSockets {
       .map((e) => e.slice(0, 60));
   });
   return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FERTILIZANTE (autoridad del servidor)
+// +10% de eficiencia del cultivo por uso: reduce el tiempo de
+// crecimiento y aumenta la cantidad cosechada. Acumulable hasta 5
+// usos por cultivo (máx +50% total). El frontend lo espeja en
+// src/items/ItemStats.ts (solo display); la parcela aplica el bonus.
+// ═══════════════════════════════════════════════════════════════════
+
+/** Fracción de eficiencia por cada uso de fertilizante (0.10 = +10%). */
+export const FERTILIZER_EFFICIENCY_PCT = 0.1;
+/** Máximo de usos acumulables por cultivo. */
+export const FERTILIZER_MAX_USES = 5;
+
+export interface FertilizerStats {
+  /** +10% eficiencia por uso (tiempo y rendimiento). */
+  efficiencyPct: number;
+  /** Tope de usos por cultivo. */
+  maxUses: number;
+}
+
+export const FERTILIZER_STATS: Record<string, FertilizerStats> = {
+  Fertilizante: { efficiencyPct: FERTILIZER_EFFICIENCY_PCT, maxUses: FERTILIZER_MAX_USES },
+};
+
+/** Stats de fertilizante por nombre canónico (alias incluidos). Null si no es fertilizante. */
+export function getFertilizerStats(nombre: string): (FertilizerStats & { nombre: string }) | null {
+  const entry = findCatalogEntry(nombre);
+  if (!entry) return null;
+  const stats = FERTILIZER_STATS[entry.nombre];
+  return stats ? { ...stats, nombre: entry.nombre } : null;
+}
+
+/** Texto corto de stats del fertilizante para UI/consola. */
+export function describeFertilizerStats(nombre: string): string | null {
+  const stats = getFertilizerStats(nombre);
+  if (!stats) return null;
+  const pct = Math.round(stats.efficiencyPct * 100);
+  return `+${pct}% de eficiencia del cultivo por uso (máx ${stats.maxUses} usos acumulables)`;
 }

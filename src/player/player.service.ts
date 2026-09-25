@@ -926,6 +926,24 @@ export class PlayerService {
     return saved.inventory;
   }
 
+  /**
+   * Consume N unidades por nombre canónico (Fertilizante, etc.) repartidas
+   * entre stacks. Atómico: valida stock total antes de mutar.
+   */
+  async consumeByNameInput(playerId: string, input: { nombre: string; cantidad: number }) {
+    const qty = Math.floor(input.cantidad);
+    if (!Number.isInteger(qty) || qty < 1 || qty > 999) {
+      throw new BadRequestException('La cantidad debe ser un entero del 1 al 999');
+    }
+    const entry = findCatalogEntry(input.nombre);
+    if (!entry) throw new BadRequestException(`Item "${input.nombre}" no existe en el catálogo`);
+    const { state, settings } = await this.load(playerId);
+    applyNeedsDecay(state);
+    consumeByName(state, entry.nombre, qty);
+    const saved = await this.save(playerId, settings, state);
+    return saved.inventory;
+  }
+
   async getSkills(playerId: string) {
     const { state, settings } = await this.load(playerId);
     if (applyNeedsDecay(state)) await this.save(playerId, settings, state);

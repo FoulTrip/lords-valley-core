@@ -21,6 +21,7 @@ player/
 - `GET /player/me/inventory` → stacks del servidor
 - `POST /player/me/inventory/add` {nombre?, escuela?, cantidad 1-9} → valida catálogo o alias de escuela; rechaza lo demás
 - `POST /player/me/inventory/use` {stackId} → pergamino: consume 1 y aplica +10 XP a su escuela; consumible: consume 1; resto: 403 sin mutar
+- `POST /player/me/inventory/consume` {nombre, cantidad 1-999} → consume unidades por nombre canónico (Fertilizante para parcelas, etc.)
 - `POST /player/me/inventory/remove` {stackId} → elimina el stack
 - `GET /player/me/skills` → 6 escuelas (todo inicia en nivel 0, XP 0, tier 1)
 - `POST /player/me/skills/train` {escuela, skillId?} → exige 1 pergamino de esa escuela, lo consume y aplica +10 XP

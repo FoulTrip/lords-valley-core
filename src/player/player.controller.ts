@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { ActiveWeaponDto, AddItemDto, EquipDto, GodModeDto, SpawnAllowDto, StackIdDto, TrainDto, UnequipDto, UseItemDto } from './dto/player.dto';
+import { ActiveWeaponDto, AddItemDto, ConsumeItemDto, EquipDto, GodModeDto, SpawnAllowDto, StackIdDto, TrainDto, UnequipDto, UseItemDto } from './dto/player.dto';
 import { PlayerService, type EquipSlot } from './player.service';
 
 @ApiTags('player')
@@ -33,6 +33,12 @@ export class PlayerController {
   @ApiOperation({ summary: 'Eliminar un stack del inventario' })
   removeItem(@Request() req: { user: { id: string } }, @Body() dto: StackIdDto) {
     return this.player.removeStack(req.user.id, dto.stackId);
+  }
+
+  @Post('me/inventory/consume')
+  @ApiOperation({ summary: 'Consume N unidades por nombre (Fertilizante para fertilizar, etc.)' })
+  consumeItem(@Request() req: { user: { id: string } }, @Body() dto: ConsumeItemDto) {
+    return this.player.consumeByNameInput(req.user.id, dto);
   }
 
   @Get('me/equipment')

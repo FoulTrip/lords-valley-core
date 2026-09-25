@@ -85,3 +85,13 @@ export class SpawnAllowDto {
   @Max(10)
   count!: number;
 }
+
+export class ConsumeItemDto {
+  @IsString()
+  nombre!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  cantidad!: number;
+}
