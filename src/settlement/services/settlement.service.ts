@@ -6,6 +6,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { plainToInstance } from 'class-transformer';
 import { SettlementResponseDto } from '../dto/settlement-response.dto';
 import { ResourceType } from '@prisma/client';
+import { CreateWarehouseDto, DepositWarehouseDto, WithdrawWarehouseDto, BackendWarehouse } from '../dto/warehouse.dto';
 
 @Injectable()
 export class SettlementService {
@@ -173,6 +174,66 @@ export class SettlementService {
     await this.repository.save(domain);
 
     return { gameMode: mode };
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ALMACENES: Operaciones autoritativas server-side
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async getWarehouses(settlementId: string): Promise<BackendWarehouse[]> {
+    const domain = await this.repository.findById(settlementId);
+    if (!domain) throw new NotFoundException(`Settlement ${settlementId} not found`);
+    return domain.getWarehouses();
+  }
+
+  async createWarehouse(
+    settlementId: string,
+    dto: CreateWarehouseDto,
+  ): Promise<{ ok: boolean; warehouse: BackendWarehouse }> {
+    const domain = await this.repository.findById(settlementId);
+    if (!domain) throw new NotFoundException(`Settlement ${settlementId} not found`);
+
+    const result = domain.addWarehouse(dto);
+    if (!result.ok || !result.warehouse) {
+      throw new BadRequestException(result.error || 'No se pudo crear el almacén.');
+    }
+
+    await this.repository.save(domain);
+    return { ok: true, warehouse: result.warehouse };
+  }
+
+  async depositToWarehouse(
+    settlementId: string,
+    warehouseId: string,
+    dto: DepositWarehouseDto,
+  ): Promise<{ ok: boolean; warehouse: BackendWarehouse }> {
+    const domain = await this.repository.findById(settlementId);
+    if (!domain) throw new NotFoundException(`Settlement ${settlementId} not found`);
+
+    const result = domain.depositToWarehouse(warehouseId, dto.nombre, dto.cantidad);
+    if (!result.ok || !result.warehouse) {
+      throw new BadRequestException(result.error || 'No se pudo depositar en el almacén.');
+    }
+
+    await this.repository.save(domain);
+    return { ok: true, warehouse: result.warehouse };
+  }
+
+  async withdrawFromWarehouse(
+    settlementId: string,
+    warehouseId: string,
+    dto: WithdrawWarehouseDto,
+  ): Promise<{ ok: boolean; item: { nombre: string; cantidad: number; categoria: string }; warehouse: BackendWarehouse }> {
+    const domain = await this.repository.findById(settlementId);
+    if (!domain) throw new NotFoundException(`Settlement ${settlementId} not found`);
+
+    const result = domain.withdrawFromWarehouse(warehouseId, dto.slotIndex, dto.cantidad);
+    if (!result.ok || !result.item || !result.warehouse) {
+      throw new BadRequestException(result.error || 'No se pudo retirar del almacén.');
+    }
+
+    await this.repository.save(domain);
+    return { ok: true, item: result.item, warehouse: result.warehouse };
   }
 
   // Pool de nombres para generación server-side (sin Math.random en el cliente)

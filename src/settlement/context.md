@@ -35,6 +35,11 @@ settlement/
 - **String-to-BigInt**: `Settlement.lvyBalance: String DB -> BigInt Domain -> String HTTP`. Ver `prisma/context.md:2`.
 - **Orphan Refs**: `survivor.superiorId`, `socialLink.targetSurvivorId`, `workSlot.survivorId` deben existir en `settlement.survivors[].id`. Validación O(n) en `repository.save()`.
 - **BSON Limit**: Estimación `Buffer.byteLength(JSON.stringify(snapshot))` en cada `save()`. Warning >10MB. Post-MVP externalizar `survivors`/`historyLog`.
+- **Almacenes Especializados (3x3 footprint, 100 slots, maxStack 300)**:
+  - `GET /settlements/:id/warehouses`: Obtiene los almacenes persistidos en el asentamiento.
+  - `POST /settlements/:id/warehouses`: Valida huella 3×3, límites por capítulo de civilización (Cap 1-2: 1, Cap 3: 2, Cap 4: 5, Cap 5+: sin límite) y crea el almacén con 100 casillas.
+  - `POST /settlements/:id/warehouses/:warehouseId/deposit`: Valida server-side la categoría del ítem (`mineral`, `madera`, `comida`), pila máxima de 300 por casilla y límite de 100 slots.
+  - `POST /settlements/:id/warehouses/:warehouseId/withdraw`: Valida disponibilidad y retira cantidades autoritativamente.
 
 ## Flujo Típico
 `Controller -> Service (DTO) -> Repository.findById -> Domain.execute* -> pullEvents -> emit -> Repository.save(snapshot)`

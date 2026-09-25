@@ -66,7 +66,9 @@ describe('Autoguardado de posición (regresión: no debe borrar el inventario)',
     const svc = new AuthService(prisma as never, {} as never);
     await svc.updateSettings('p1', { game: { inventory: [{ nombre: 'hack' }] }, foo: 1 } as never);
     const saved = prisma.__get();
-    expect(saved.game).toBeUndefined();
+    // game se conserva del estado actual, no se sobrescribe con el payload
+    expect(saved.game).toBeDefined();
+    expect(saved.game.inventory).toHaveLength(0);
     expect((saved as any).foo).toBe(1);
   });
 });

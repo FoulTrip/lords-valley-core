@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Post, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { AddItemDto, GodModeDto, SpawnAllowDto, StackIdDto, TrainDto } from './dto/player.dto';
-import { PlayerService } from './player.service';
+import { ActiveWeaponDto, AddItemDto, EquipDto, GodModeDto, SpawnAllowDto, StackIdDto, TrainDto, UnequipDto, UseItemDto } from './dto/player.dto';
+import { PlayerService, type EquipSlot } from './player.service';
 
 @ApiTags('player')
 @ApiBearerAuth()
@@ -24,15 +24,39 @@ export class PlayerController {
   }
 
   @Post('me/inventory/use')
-  @ApiOperation({ summary: 'Usar 1 unidad de un stack (pergamino +XP; Pan +20 hambre; Odre con Agua +20 sed y deja Odre vacío)' })
-  useItem(@Request() req: { user: { id: string } }, @Body() dto: StackIdDto) {
-    return this.player.useItem(req.user.id, dto.stackId);
+  @ApiOperation({ summary: 'Usar 1 unidad de un stack (comida=salud/saciedad, pociones/vendas, pergaminos de área con x/y/settlementId)' })
+  useItem(@Request() req: { user: { id: string } }, @Body() dto: UseItemDto) {
+    return this.player.useItem(req.user.id, dto);
   }
 
   @Post('me/inventory/remove')
   @ApiOperation({ summary: 'Eliminar un stack del inventario' })
   removeItem(@Request() req: { user: { id: string } }, @Body() dto: StackIdDto) {
     return this.player.removeStack(req.user.id, dto.stackId);
+  }
+
+  @Get('me/equipment')
+  @ApiOperation({ summary: 'Equipo del jugador (arma + armadura)' })
+  equipment(@Request() req: { user: { id: string } }) {
+    return this.player.getEquipment(req.user.id);
+  }
+
+  @Post('me/equipment/equip')
+  @ApiOperation({ summary: 'Equipa un arma (arma1/arma2) o equipo (casco, pecho, botas, etc.) desde un stack' })
+  equip(@Request() req: { user: { id: string } }, @Body() dto: EquipDto) {
+    return this.player.equipItem(req.user.id, dto.stackId, dto.slot);
+  }
+
+  @Post('me/equipment/unequip')
+  @ApiOperation({ summary: 'Desequipa un slot ("arma1", "arma2", "armadura", "casco", ...) al inventario' })
+  unequip(@Request() req: { user: { id: string } }, @Body() dto: UnequipDto) {
+    return this.player.unequipSlot(req.user.id, dto.slot as EquipSlot);
+  }
+
+  @Post('me/equipment/active-weapon')
+  @ApiOperation({ summary: 'Elige el arma activa en combate ("arma1" o "arma2", teclas 1/2)' })
+  activeWeapon(@Request() req: { user: { id: string } }, @Body() dto: ActiveWeaponDto) {
+    return this.player.setActiveWeapon(req.user.id, dto.slot);
   }
 
   @Get('me/skills')

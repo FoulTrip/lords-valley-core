@@ -27,7 +27,7 @@ export interface SkillState {
 }
 
 export const TRAINING_XP = 10;
-export const MAX_STACK = 10;
+export const MAX_STACK = 20;
 
 const STACKABLE: ItemCategory[] = [
   'Consumibles Magicos',
@@ -46,15 +46,46 @@ export function maxStackForCategory(categoria: ItemCategory): number {
   return isStackableCategory(categoria) ? MAX_STACK : 1;
 }
 
+export type WarehouseCategory = 'mineral' | 'madera' | 'comida';
+
+const MINERAL_ITEMS = new Set([
+  'mineraldecobre', 'mineraldeestano', 'mineraldehierro', 'mineraldeplata', 'mineraldeoro', 'mineraldecarbon',
+  'cobre', 'estano', 'hierro', 'plata', 'oro', 'carbon', 'piedra', 'marmol',
+  'lingotedehierro', 'lingotedecobre', 'lingotedeoro', 'lingotedeplata'
+]);
+
+const MADERA_ITEMS = new Set([
+  'madera', 'tablondemadera', 'tablas', 'tablon', 'tablones', 'lena', 'tronco', 'troncos'
+]);
+
+const COMIDA_ITEMS = new Set([
+  'pan', 'carneseca', 'manzana', 'queso', 'pescado', 'cerveza', 'agua', 'odreconagua', 'odrevacio',
+  'racionesdecomida', 'carne', 'trigo',
+  'gavillasdetrigo', 'mazorcasdemaiz', 'costalesdearroz',
+  'cajondetomates', 'sacodezanahorias', 'sacosdepatatas', 'cestasdecoliflor', 'sartadechiles', 'cestadechampinones',
+  'cestasdefresas', 'canastosdeuva', 'sandiasmaduras', 'melonesamarillos', 'cajademelocotones', 'cestosdecerezas', 'cestodeciruelas', 'cestasdelimones',
+  'pinasmaduras', 'racimosdebanano', 'racimosdeplatano', 'cocosverdes',
+  'canasdulces', 'sacosdegranosdecafe', 'mazorcasdecacao', 'manojosdealbahaca'
+]);
+
+export function getItemWarehouseCategory(nombre: string): WarehouseCategory | null {
+  const n = normalize(nombre);
+  if (!n) return null;
+  if (MINERAL_ITEMS.has(n)) return 'mineral';
+  if (MADERA_ITEMS.has(n)) return 'madera';
+  if (COMIDA_ITEMS.has(n)) return 'comida';
+  return null;
+}
+
 export const ITEM_POOLS: Record<ItemCategory, string[]> = {
   Armas: ['Espada Corta', 'Arco de Caza', 'Daga', 'Lanza', 'Maza', 'Hacha de Guerra'],
   Equipo: ['Túnica', 'Cota de Malla', 'Botas de Cuero', 'Guantes', 'Casco', 'Capa'],
-  'Consumibles Magicos': ['Poción de Vida', 'Poción de Maná', 'Elixir de Fuerza', 'Pergamino de Fuego'],
+  'Consumibles Magicos': ['Poción de Vida', 'Poción de Maná', 'Elixir de Fuerza', 'Pergamino de Fuego', 'Pergamino de Frío'],
   'Consumibles Comunes': ['Venda', 'Antídoto', 'Tónico', 'Ungüento'],
-  'Comida y Bebida': ['Pan', 'Carne Seca', 'Manzana', 'Queso', 'Pescado', 'Cerveza', 'Agua', 'Odre con Agua', 'Odre vacío'],
-  'Recurso Refinado': ['Lingote de Hierro', 'Tablón de Madera', 'Tela Fina', 'Cuero Curtido'],
+  'Comida y Bebida': ['Pan', 'Carne Seca', 'Manzana', 'Queso', 'Pescado', 'Cerveza', 'Agua', 'Odre con Agua', 'Odre vacío', 'Raciones de Comida', 'Carne', 'Trigo'],
+  'Recurso Refinado': ['Lingote de Hierro', 'Lingote de Cobre', 'Lingote de Oro', 'Lingote de Plata', 'Tablón de Madera', 'Tela Fina', 'Cuero Curtido'],
   'Recursos en Bruto': [
-    'Madera', 'Piedra', 'Hierro', 'Hierba', 'Tela', 'Cuero',
+    'Madera', 'Tronco', 'Leña', 'Piedra', 'Mármol', 'Hierro', 'Hierba', 'Tela', 'Cuero',
     // Minerales de extracción
     'Mineral de Cobre', 'Mineral de Estaño', 'Mineral de Hierro', 'Mineral de Plata', 'Mineral de Oro', 'Mineral de Carbón',
     'Cobre', 'Estaño', 'Plata', 'Oro', 'Carbón',
@@ -106,12 +137,50 @@ export interface ConsumableEffect {
 
 export const CONSUMABLE_EFFECTS: Record<string, ConsumableEffect> = {
   Pan: { hunger: 20 },
+  'Carne Seca': { hunger: 30 },
+  Manzana: { hunger: 15 },
+  Queso: { hunger: 25 },
+  Pescado: { hunger: 25 },
+  Cerveza: { hunger: 10, thirst: 15 },
+  Agua: { thirst: 30 },
   'Odre con Agua': { thirst: 20, emptiesTo: 'Odre vacío' },
   'Odre vacío': {
     notUsable: true,
     notUsableMessage:
       'El Odre vacío no se puede beber. Consigue un Odre con Agua (addItem:Bebida/OdreAgua1..9).',
   },
+  'Raciones de Comida': { hunger: 40 },
+  Carne: { hunger: 30 },
+  Trigo: { hunger: 15 },
+  // Cosechas de cereales
+  'Gavillas de Trigo': { hunger: 20 },
+  'Mazorcas de Maíz': { hunger: 25 },
+  'Costales de Arroz': { hunger: 30 },
+  // Cosechas de vegetales
+  'Cajón de Tomates': { hunger: 15, thirst: 10 },
+  'Saco de Zanahorias': { hunger: 15 },
+  'Sacos de Patatas': { hunger: 25 },
+  'Cestas de Coliflor': { hunger: 15 },
+  'Sarta de Chiles': { hunger: 10 },
+  'Cesta de Champiñones': { hunger: 15 },
+  // Cosechas de frutas
+  'Cestas de Fresas': { hunger: 15 },
+  'Canastos de Uva': { hunger: 20 },
+  'Sandías Maduras': { hunger: 20, thirst: 20 },
+  'Melones Amarillos': { hunger: 15, thirst: 15 },
+  'Caja de Melocotones': { hunger: 20 },
+  'Cestos de Cerezas': { hunger: 15 },
+  'Cesto de Ciruelas': { hunger: 15 },
+  'Cestas de Limones': { hunger: 10 },
+  'Piñas Maduras': { hunger: 20, thirst: 10 },
+  'Racimos de Banano': { hunger: 20 },
+  'Racimos de Plátano': { hunger: 20 },
+  'Cocos Verdes': { hunger: 15, thirst: 15 },
+  // Cosechas comestibles especiales/industriales
+  'Cañas Dulces': { hunger: 15 },
+  'Sacos de Granos de Café': { hunger: 10 },
+  'Mazorcas de Cacao': { hunger: 10 },
+  'Manojos de Albahaca': { hunger: 10 },
 };
 
 export interface ItemMeta {
@@ -124,6 +193,12 @@ export const ITEM_META: Record<string, ItemMeta> = {
     icono: '🍞',
     descripcion: 'Sacia 20% de hambre. Úsalo desde el inventario.',
   },
+  'Carne Seca': { icono: '🥩', descripcion: 'Sacia 30% de hambre.' },
+  Manzana: { icono: '🍎', descripcion: 'Sacia 15% de hambre.' },
+  Queso: { icono: '🧀', descripcion: 'Sacia 25% de hambre.' },
+  Pescado: { icono: '🐟', descripcion: 'Sacia 25% de hambre.' },
+  Cerveza: { icono: '🍺', descripcion: 'Sacia 10% de hambre y 15% de sed.' },
+  Agua: { icono: '💧', descripcion: 'Sacia 30% de sed.' },
   'Odre con Agua': {
     icono: '💧',
     descripcion: 'Sacia 20% de sed. Al beber deja 1x Odre vacío.',
@@ -132,6 +207,41 @@ export const ITEM_META: Record<string, ItemMeta> = {
     icono: '🏺',
     descripcion: 'Odre vacío. Se obtiene al beber un Odre con Agua.',
   },
+  'Raciones de Comida': { icono: '🍱', descripcion: 'Sacia 40% de hambre.' },
+  Carne: { icono: '🍖', descripcion: 'Sacia 30% de hambre.' },
+  Trigo: { icono: '🌾', descripcion: 'Sacia 15% de hambre.' },
+  // Armas (daño base + cadencia + alcance + hemorragia)
+  'Espada Corta': { icono: '🗡️', descripcion: 'Arma: +15 daño, +10 velocidad de ataque. Hemorragia +20/10s (máx 5 acumulaciones).' },
+  'Arco de Caza': { icono: '🏹', descripcion: 'Arma: +10 daño, +10 tiles de alcance, -5 velocidad de ataque.' },
+  Daga: { icono: '🔪', descripcion: 'Arma: +5 daño, +20 velocidad de ataque. Hemorragia +10/10s (máx 8).' },
+  Lanza: { icono: '🔱', descripcion: 'Arma: +20 daño, +2 tiles de alcance. Hemorragia +30/50s (máx 3).' },
+  Maza: { icono: '🔨', descripcion: 'Arma: +30 daño, -2 velocidad de ataque.' },
+  'Hacha de Guerra': { icono: '🪓', descripcion: 'Arma: +20 daño. Hemorragia +30/10s (máx 10).' },
+  // Equipo
+  'Túnica': { icono: '🥋', descripcion: 'Vestimenta ligera sin atributos (por ahora).' },
+  'Cota de Malla': { icono: '⛓️', descripcion: 'Armadura: +10% reducción de daño recibido.' },
+  'Botas de Cuero': { icono: '🥾', descripcion: 'Calzado: +5% velocidad de movimiento.' },
+  Guantes: { icono: '🧤', descripcion: 'Guantes: +5% velocidad de ataque.' },
+  Casco: { icono: '🪖', descripcion: 'Yelmo: +5% reducción de daño recibido.' },
+  Capa: { icono: '🧥', descripcion: 'Capa: +10% resistencia al fuego y al frío.' },
+  // Consumibles mágicos
+  'Poción de Vida': { icono: '❤️', descripcion: 'Recupera +50 puntos de vida al usarla.' },
+  'Poción de Maná': { icono: '🔷', descripcion: 'Recupera +10 puntos de maná al usarla.' },
+  'Elixir de Fuerza': { icono: '💪', descripcion: 'Aumenta +20 el daño base de forma permanente.' },
+  'Pergamino de Fuego': { icono: '🔥', descripcion: 'Inflige +100 daño de fuego en 5 tiles + quemadura +100/10s.' },
+  'Pergamino de Frío': { icono: '❄️', descripcion: 'Inflige +100 daño de frío en 5 tiles + daño de frío +100/10s y -20% velocidad de ataque/movimiento.' },
+  // Consumibles comunes
+  Venda: { icono: '🩹', descripcion: 'Recupera +30 de vida y purga la hemorragia.' },
+  'Antídoto': { icono: '🧪', descripcion: 'Elimina todos los efectos negativos.' },
+  'Tónico': { icono: '⚗️', descripcion: '+20% resistencia al fuego/frío e inmunidad a efectos negativos por 1 minuto.' },
+  'Ungüento': { icono: '🧴', descripcion: 'Inmunidad a quemaduras y +100 de vida durante 1 minuto.' },
+  // Refinados y brutos nuevos
+  'Lingote de Cobre': { icono: '🟧', descripcion: 'Metal refinado para manufactura.' },
+  'Lingote de Oro': { icono: '🟨', descripcion: 'Metal precioso refinado.' },
+  'Lingote de Plata': { icono: '⬜', descripcion: 'Metal refinado para manufactura.' },
+  'Mármol': { icono: '⬜', descripcion: 'Piedra noble para construcción.' },
+  Tronco: { icono: '🪵', descripcion: 'Tronco en bruto para aserrar.' },
+  'Leña': { icono: '🔥', descripcion: 'Madera menuda como combustible.' },
 };
 
 export function getItemMeta(nombre: string): ItemMeta | null {
@@ -202,6 +312,18 @@ const ITEM_ALIASES: Record<string, string> = {
   odre: 'Odre vacío',
   odrevacio: 'Odre vacío',
   pan: 'Pan',
+  racionesdecomida: 'Raciones de Comida',
+  // Variantes de madera -> canónicos del catálogo
+  tronco: 'Tronco',
+  troncos: 'Tronco',
+  lena: 'Leña',
+  tablas: 'Tablón de Madera',
+  tablon: 'Tablón de Madera',
+  tablones: 'Tablón de Madera',
+  tablondemadera: 'Tablón de Madera',
+  // Pergamino de frío (no es pergamino de escuela: va por nombre, no por escuela)
+  pergaminodefrio: 'Pergamino de Frío',
+  pergaminodehielo: 'Pergamino de Frío',
 };
 
 export const TRAINING_SCROLL_NAMES: Record<SchoolId, string> = {
@@ -273,4 +395,258 @@ export function findCatalogEntry(nombre: string): { nombre: string; categoria: I
     if (found) return { nombre: found, categoria };
   }
   return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATS DE COMBATE (autoridad del servidor)
+// El frontend los espeja en src/items/ItemStats.ts (solo display/cadencia
+// local); el servidor valida nombres contra este registro y decide daño,
+// efectos y duraciones.
+// ═══════════════════════════════════════════════════════════════════
+
+/** 1 tile = 32px en mundo iso (para convertir alcance de armas a px). */
+export const TILE_PX = 32;
+
+/** Ventana base de cadencia: sin arma, 1 golpe cada 3 segundos. */
+export const BASE_ATTACK_WINDOW_MS = 3000;
+
+/**
+ * Suelo de cadencia: 0.5 golpes por ventana = 1 golpe cada 6 segundos.
+ * Cualquier bonus total <= -3 (o que deje los golpes en <= 0.5) cae aquí.
+ */
+export const MIN_ATTACK_HITS_PER_WINDOW = 0.5;
+
+/**
+ * Convierte el bonus plano de velocidad de ataque a intervalo entre golpes.
+ * El bonus modifica los golpes por ventana de 3s: golpes = 1 + bonus.
+ * Ej: Espada Corta (+10) -> 11 golpes/3s -> ~273ms; Maza (-2) -> suelo 6s.
+ */
+export function getAttackIntervalMs(attackSpeedBonus: number): number {
+  const bonus = Number.isFinite(attackSpeedBonus) ? attackSpeedBonus : 0;
+  if (bonus < -3) return Math.round(BASE_ATTACK_WINDOW_MS / MIN_ATTACK_HITS_PER_WINDOW);
+  const hits = 1 + bonus;
+  if (hits <= MIN_ATTACK_HITS_PER_WINDOW) {
+    return Math.round(BASE_ATTACK_WINDOW_MS / MIN_ATTACK_HITS_PER_WINDOW);
+  }
+  return Math.max(1, Math.round(BASE_ATTACK_WINDOW_MS / hits));
+}
+
+/** Hemorragia de un arma: el daño se acumula por cantidad (suma), la
+ * duración NO se acumula (se reinicia en cada aplicación), y el daño por
+ * tick de la hemorragia es el total acumulado. */
+export interface BleedSpec {
+  damage: number;
+  durationSec: number;
+  maxStacks: number;
+}
+
+export interface WeaponStats {
+  /** Daño base por golpe. */
+  damage: number;
+  /** Bonus plano de velocidad: golpes extra por ventana de 3s (puede ser negativo). */
+  attackSpeed: number;
+  /** Alcance extra en tiles (se suma al alcance base del atacante). */
+  rangeTiles?: number;
+  bleed?: BleedSpec;
+}
+
+export const WEAPON_STATS: Record<string, WeaponStats> = {
+  'Espada Corta': { damage: 15, attackSpeed: 10, bleed: { damage: 20, durationSec: 10, maxStacks: 5 } },
+  'Arco de Caza': { damage: 10, attackSpeed: -5, rangeTiles: 10 },
+  Daga: { damage: 5, attackSpeed: 20, bleed: { damage: 10, durationSec: 10, maxStacks: 8 } },
+  Lanza: { damage: 20, attackSpeed: 0, rangeTiles: 2, bleed: { damage: 30, durationSec: 50, maxStacks: 3 } },
+  Maza: { damage: 30, attackSpeed: -2 },
+  'Hacha de Guerra': { damage: 20, attackSpeed: 0, bleed: { damage: 30, durationSec: 10, maxStacks: 10 } },
+};
+
+export const WEAPON_NAMES = Object.keys(WEAPON_STATS);
+
+/** Stats por nombre canónico de arma (alias incluidos). Null si no es arma. */
+export function getWeaponStats(nombre: string): (WeaponStats & { nombre: string }) | null {
+  const entry = findCatalogEntry(nombre);
+  if (!entry || entry.categoria !== 'Armas') return null;
+  const stats = WEAPON_STATS[entry.nombre];
+  return stats ? { ...stats, nombre: entry.nombre } : null;
+}
+
+export interface EquipmentStats {
+  /** Fracción 0..1 de daño directo recibido que se ignora. */
+  damageReduction?: number;
+  /** Fracción (ej 0.05 = +5%) de velocidad de movimiento. */
+  moveSpeedPct?: number;
+  /** Fracción (ej 0.05 = +5%) que acelera la cadencia (multiplica golpes). */
+  attackSpeedPct?: number;
+  /** Fracción 0..1 de daño de fuego/daño por quemadura que se ignora. */
+  fireResist?: number;
+  /** Fracción 0..1 de daño de frío que se ignora. */
+  coldResist?: number;
+}
+
+export const EQUIPMENT_STATS: Record<string, EquipmentStats> = {
+  // Túnica: sin atributos por ahora.
+  'Túnica': {},
+  'Cota de Malla': { damageReduction: 0.1 },
+  'Botas de Cuero': { moveSpeedPct: 0.05 },
+  Guantes: { attackSpeedPct: 0.05 },
+  Casco: { damageReduction: 0.05 },
+  Capa: { fireResist: 0.1, coldResist: 0.1 },
+};
+
+export const ARMOR_NAMES = Object.keys(EQUIPMENT_STATS);
+
+// ═══════════════════════════════════════════════════════════════════
+// CALIDAD DE ARMAS Y EQUIPO (autoridad del servidor)
+// Solo Armas y Equipo pueden tener calidad. `comun` es el valor base
+// (multiplicador 1.0) para no alterar los números del catálogo.
+// ═══════════════════════════════════════════════════════════════════
+
+export type ItemQuality =
+  | 'comun' | 'bueno' | 'raro' | 'notable' | 'sobresaliente'
+  | 'excelente' | 'obra maestra' | 'legendario' | 'dios';
+
+export const QUALITY_BONUSES: Record<ItemQuality, number> = {
+  comun: 0,
+  bueno: 5,
+  raro: 10,
+  notable: 15,
+  sobresaliente: 20,
+  excelente: 20,
+  'obra maestra': 30,
+  legendario: 50,
+  dios: 100,
+};
+
+/** Bonus plano de calidad que se SUMA al valor base (comun = 0, no altera el catálogo). */
+export function getQualityBonus(quality?: string | null): number {
+  const q = (quality ?? 'comun').toLowerCase() as ItemQuality;
+  return QUALITY_BONUSES[q] ?? 0;
+}
+
+/** Durabilidad máxima al crear el item según su calidad (comun = 100). */
+export function maxDurabilityForQuality(quality?: string | null): number {
+  return 100 + getQualityBonus(quality);
+}
+
+/** Stats de arma con la calidad aplicada (daño y sangrado suman el bonus; cadencia/alcance no). */
+export function applyQualityToWeaponStats<T extends WeaponStats>(
+  stats: T, quality?: string | null,
+): T {
+  const bonus = getQualityBonus(quality);
+  if (bonus === 0) return { ...stats };
+  return {
+    ...stats,
+    damage: stats.damage + bonus,
+    ...(stats.bleed ? { bleed: { ...stats.bleed, damage: stats.bleed.damage + bonus } } : {}),
+  };
+}
+
+/** Stats de equipo con la calidad aplicada (el bonus suma puntos porcentuales). */
+export function applyQualityToEquipmentStats<T extends EquipmentStats>(
+  stats: T, quality?: string | null,
+): T {
+  const bonus = getQualityBonus(quality);
+  if (bonus === 0) return { ...stats };
+  const scale = (v: number) => Math.round((v + bonus / 100) * 10000) / 10000;
+  return {
+    ...stats,
+    ...(typeof stats.damageReduction === 'number' ? { damageReduction: scale(stats.damageReduction) } : {}),
+    ...(typeof stats.moveSpeedPct === 'number' ? { moveSpeedPct: scale(stats.moveSpeedPct) } : {}),
+    ...(typeof stats.attackSpeedPct === 'number' ? { attackSpeedPct: scale(stats.attackSpeedPct) } : {}),
+    ...(typeof stats.fireResist === 'number' ? { fireResist: scale(stats.fireResist) } : {}),
+    ...(typeof stats.coldResist === 'number' ? { coldResist: scale(stats.coldResist) } : {}),
+  };
+}
+
+/** Stats por nombre canónico de equipo (alias incluidos). Null si no es equipo. */
+export function getEquipmentStats(nombre: string): (EquipmentStats & { nombre: string }) | null {
+  const entry = findCatalogEntry(nombre);
+  if (!entry || entry.categoria !== 'Equipo') return null;
+  const stats = EQUIPMENT_STATS[entry.nombre];
+  return stats ? { ...stats, nombre: entry.nombre } : null;
+}
+
+/** Daño en el tiempo de un pergamino de área. */
+export interface ScrollDotSpec {
+  /** Daño total repartido en la duración (tick cada 1s). */
+  damage: number;
+  durationSec: number;
+  /** 'quemadura' (fuego) o 'frio' (daño de frío + ralentización). */
+  kind: 'quemadura' | 'frio';
+}
+
+/** Efecto de combate al USAR un consumible (Pociones, Elixir, Vendas...). */
+export interface ConsumableCombat {
+  heal?: number;
+  mana?: number;
+  /** Elixir de Fuerza: +daño base permanente. */
+  damageBuff?: number;
+  /** Venda: purga solo hemorragia. Antídoto: purga todo. */
+  cleanseBleed?: boolean;
+  cleanseAll?: boolean;
+  /** Tónico: resistencia al fuego/frío durante N segundos. */
+  resistFire?: number;
+  resistCold?: number;
+  resistDurationSec?: number;
+  /** Tónico: inmunidad a efectos negativos durante N segundos. */
+  immuneNegativeSec?: number;
+  /** Ungüento: inmunidad a quemaduras durante N segundos. */
+  immuneBurn?: boolean;
+  immuneBurnSec?: number;
+  /** Ungüento: curación repartida en la duración (tick cada 1s). */
+  healOverTime?: { total: number; durationSec: number };
+  /** Pergaminos de área: daño + radio en tiles + DoT a los afectados. */
+  aoe?: {
+    damage: number;
+    radiusTiles: number;
+    dot: ScrollDotSpec;
+    /** Solo Pergamino de Frío: -20% ataque/movimiento a los afectados. */
+    slow?: { attackSpeedPct: number; moveSpeedPct: number; durationSec: number };
+  };
+}
+
+export const CONSUMABLE_COMBAT: Record<string, ConsumableCombat> = {
+  'Poción de Vida': { heal: 50 },
+  'Poción de Maná': { mana: 10 },
+  'Elixir de Fuerza': { damageBuff: 20 },
+  'Pergamino de Fuego': {
+    aoe: { damage: 100, radiusTiles: 5, dot: { damage: 100, durationSec: 10, kind: 'quemadura' } },
+  },
+  'Pergamino de Frío': {
+    aoe: {
+      damage: 100,
+      radiusTiles: 5,
+      dot: { damage: 100, durationSec: 10, kind: 'frio' },
+      slow: { attackSpeedPct: -0.2, moveSpeedPct: -0.2, durationSec: 10 },
+    },
+  },
+  Venda: { heal: 30, cleanseBleed: true },
+  'Antídoto': { cleanseAll: true },
+  'Tónico': { resistFire: 0.2, resistCold: 0.2, resistDurationSec: 60, immuneNegativeSec: 60 },
+  'Ungüento': { immuneBurn: true, immuneBurnSec: 60, healOverTime: { total: 100, durationSec: 60 } },
+};
+
+/** Efecto de combate por nombre canónico (alias incluidos). Null si no tiene. */
+export function getConsumableCombat(nombre: string): (ConsumableCombat & { nombre: string }) | null {
+  const entry = findCatalogEntry(nombre);
+  if (!entry) return null;
+  const combat = CONSUMABLE_COMBAT[entry.nombre];
+  return combat ? { ...combat, nombre: entry.nombre } : null;
+}
+
+/** Buffs temporizados persistidos en Player.settings.game.buffs. */
+export type TimedBuffKind =
+  | 'resist_fire'
+  | 'resist_cold'
+  | 'immune_negative'
+  | 'immune_burn'
+  | 'hot'
+  | 'attack_slow'
+  | 'move_slow';
+
+export interface TimedBuff {
+  kind: TimedBuffKind;
+  /** Magnitud (fracción para resists/slows, PV por tick para hot). */
+  value: number;
+  /** Epoch ms de expiración. */
+  expiresAt: number;
 }

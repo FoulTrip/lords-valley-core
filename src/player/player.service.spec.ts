@@ -32,14 +32,25 @@ function mockPrisma(initialSettings: unknown) {
   };
 }
 
+function mockCombat() {
+  return {
+    healEntity: jest.fn(() => ({ applied: true, hp: 200, maxHp: 200 })),
+    addMana: jest.fn(() => ({ applied: true, mana: 100, maxMana: 100 })),
+    syncLoadoutBuffs: jest.fn(),
+    findTargetRecord: jest.fn(() => ({ dots: [], buffs: [] })),
+    cleanseEntity: jest.fn(() => 0),
+    applyScrollAoe: jest.fn(() => ({ hits: [] })),
+  };
+}
+
 describe('PlayerService (autoridad del servidor)', () => {
-  it('rechaza cantidad fuera de 1-9', async () => {
+  it('rechaza cantidad fuera de 1-999', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     await expect(svc.addItem('p1', { nombre: 'Madera', cantidad: 0 })).rejects.toBeInstanceOf(
       BadRequestException,
     );
-    await expect(svc.addItem('p1', { nombre: 'Madera', cantidad: 10 })).rejects.toBeInstanceOf(
+    await expect(svc.addItem('p1', { nombre: 'Madera', cantidad: 1000 })).rejects.toBeInstanceOf(
       BadRequestException,
     );
     expect(prisma.player.update).not.toHaveBeenCalled();
@@ -47,7 +58,7 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('rechaza item fuera de catálogo', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     await expect(svc.addItem('p1', { nombre: 'Espada Láser', cantidad: 3 })).rejects.toBeInstanceOf(
       BadRequestException,
     );
@@ -55,7 +66,7 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('acepta nombre insensible a mayúsculas y guarda canónico', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     const inv = await svc.addItem('p1', { nombre: 'MADERA', cantidad: 5 });
     expect(inv).toHaveLength(1);
     expect(inv[0].nombre).toBe('Madera');
@@ -65,7 +76,7 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('resuelve alias de escuela EN y añade pergaminos', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     const inv = await svc.addItem('p1', { escuela: 'survival', cantidad: 5 });
     expect(inv).toHaveLength(1);
     expect(inv[0].nombre).toBe('Pergamino de Entrenamiento: Supervivencia');
@@ -74,7 +85,7 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('entrenar sin pergamino no muta nada', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     await expect(svc.train('p1', { escuela: 'supervivencia' })).rejects.toBeInstanceOf(
       ForbiddenException,
     );
@@ -83,7 +94,7 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('entrenar consume 1 pergamino y suma +10 XP en servidor', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     await svc.addItem('p1', { escuela: 'supervivencia', cantidad: 2 });
     const res = await svc.train('p1', { escuela: 'supervivencia' });
     expect(res.xp).toBe(10);
@@ -96,15 +107,15 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('usar stack de arma no consume (403)', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     const inv = await svc.addItem('p1', { nombre: 'Daga', cantidad: 1 });
-    await expect(svc.useItem('p1', inv[0].id)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.useItem('p1', { stackId: inv[0].id })).rejects.toBeInstanceOf(ForbiddenException);
     expect(await svc.getInventory('p1')).toHaveLength(1);
   });
 
   it('eliminar stack ajeno no existe', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     await expect(svc.removeStack('p1', 'pl_inexistente')).rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -114,7 +125,7 @@ describe('PlayerService (autoridad del servidor)', () => {
         skills: { supervivencia: [{ id: 'hack', level: 999, xp: 999 }] },
       },
     });
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     expect(await svc.getInventory('p1')).toHaveLength(1);
     const skills = await svc.getSkills('p1');
     expect(skills.supervivencia.every((s) => s.level === 0 && s.xp === 0)).toBe(true);
@@ -122,24 +133,24 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('dev inicia con godMode apagado', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     await expect(svc.getDev('p1')).resolves.toEqual({ godMode: false });
   });
 
   it('godmode on/off persiste y se sanea', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     await expect(svc.setGodMode('p1', true)).resolves.toEqual({ godMode: true });
     await expect(svc.getDev('p1')).resolves.toEqual({ godMode: true });
     await expect(svc.setGodMode('p1', false)).resolves.toEqual({ godMode: false });
     const dirty = mockPrisma({ game: { dev: { godMode: 'si' } } });
-    const svc2 = new PlayerService(dirty as never);
+    const svc2 = new PlayerService(dirty as never, mockCombat() as never);
     await expect(svc2.getDev('p1')).resolves.toEqual({ godMode: false });
   });
 
   it('fullmode pone nivel máximo en las 48 habilidades', async () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     const skills = await svc.grantFullMode('p1');
     const all = Object.values(skills).flat();
     expect(all).toHaveLength(48);
@@ -152,7 +163,7 @@ describe('PlayerService (autoridad del servidor)', () => {
 
   it('spawn-allow valida kind y rango', () => {
     const prisma = mockPrisma({});
-    const svc = new PlayerService(prisma as never);
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
     expect(svc.allowSpawn('npc', 10)).toEqual({ ok: true, kind: 'npc', count: 10 });
     expect(svc.allowSpawn('dead-dragon-ally', 5).ok).toBe(true);
     expect(svc.allowSpawn('dead-dragon-enemy', 1).ok).toBe(true);

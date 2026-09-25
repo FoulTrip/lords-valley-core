@@ -8,6 +8,9 @@ import {
 } from '@prisma/client';
 import { SurvivorDomain } from './survivor.domain';
 import { DomainEvent } from '../types/settlement.types';
+import { BackendWarehouse, BackendWarehouseSlot, CreateWarehouseDto } from '../dto/warehouse.dto';
+import { getItemWarehouseCategory } from '../../player/item-catalog';
+import { randomUUID } from 'crypto';
 
 export class SettlementDomain {
   /** Ticks de simulación (2s) por cada punto de hambre/sed. 90 x 2s = 180s = 1 punto -> 100 en 5h. */
@@ -244,6 +247,163 @@ export class SettlementDomain {
 
   getGameMode(): string {
     return this.gameMode;
+  }
+
+  getWarehouses(): BackendWarehouse[] {
+    const ws = this.worldState || {};
+    return Array.isArray(ws.warehouses) ? ws.warehouses : [];
+  }
+
+  addWarehouse(dto: CreateWarehouseDto): { ok: boolean; warehouse?: BackendWarehouse; error?: string } {
+    const warehouses = this.getWarehouses();
+    const chapter = dto.chapter || 1;
+
+    // Límite por capítulo: Cap 1 = 1, Cap 2 = 1, Cap 3 = 2, Cap 4 = 5, Cap 5 y 6 = ilimitado
+    let limit = 1;
+    if (chapter === 1 || chapter === 2) limit = 1;
+    else if (chapter === 3) limit = 2;
+    else if (chapter === 4) limit = 5;
+    else limit = Infinity;
+
+    const countOfThisType = warehouses.filter(w => w.buildingId === dto.buildingId).length;
+    if (countOfThisType >= limit) {
+      return {
+        ok: false,
+        error: `Límite de almacenes alcanzado para el capítulo ${chapter} (${countOfThisType}/${limit}). Desbloquea el siguiente capítulo para aumentar el límite.`,
+      };
+    }
+
+    const titles: Record<string, string> = {
+      b_warehouse_minerals: 'Almacén de Minerales',
+      b_warehouse_wood: 'Almacén de Madera',
+      b_warehouse_food: 'Almacén de Comida',
+    };
+
+    const newWarehouse: BackendWarehouse = {
+      id: `wh_${dto.warehouseType}_${randomUUID().slice(0, 8)}`,
+      buildingId: dto.buildingId,
+      warehouseType: dto.warehouseType,
+      name: titles[dto.buildingId] || 'Almacén',
+      tileX: dto.tileX,
+      tileY: dto.tileY,
+      width: 3,
+      height: 3,
+      level: 1,
+      slots: new Array(100).fill(null),
+      createdAt: Date.now(),
+    };
+
+    const updatedWarehouses = [...warehouses, newWarehouse];
+    this.worldState = { ...(this.worldState || {}), warehouses: updatedWarehouses };
+
+    return { ok: true, warehouse: newWarehouse };
+  }
+
+  depositToWarehouse(
+    warehouseId: string,
+    nombre: string,
+    cantidad: number,
+  ): { ok: boolean; warehouse?: BackendWarehouse; error?: string } {
+    const warehouses = this.getWarehouses();
+    const whIdx = warehouses.findIndex(w => w.id === warehouseId);
+    if (whIdx === -1) return { ok: false, error: 'Almacén no encontrado.' };
+
+    const warehouse = { ...warehouses[whIdx] };
+    const requiredCategory = warehouse.warehouseType;
+    const itemCategory = getItemWarehouseCategory(nombre);
+
+    if (itemCategory !== requiredCategory) {
+      return {
+        ok: false,
+        error: `El ítem "${nombre}" no pertenece a la categoría "${requiredCategory}" requerida por este almacén.`,
+      };
+    }
+
+    if (cantidad <= 0) return { ok: false, error: 'La cantidad debe ser mayor a 0.' };
+
+    const slots = [...warehouse.slots];
+    let remainingToDeposit = cantidad;
+
+    // 1. Llenar stacks existentes que tengan el mismo ítem y < 300
+    for (let i = 0; i < 100; i++) {
+      if (remainingToDeposit <= 0) break;
+      const slot = slots[i];
+      if (slot && slot.nombre.toLowerCase() === nombre.toLowerCase() && slot.cantidad < 300) {
+        const canTake = 300 - slot.cantidad;
+        const add = Math.min(canTake, remainingToDeposit);
+        slots[i] = { ...slot, cantidad: slot.cantidad + add };
+        remainingToDeposit -= add;
+      }
+    }
+
+    // 2. Colocar en nuevas casillas vacías (hasta 300 por casilla)
+    while (remainingToDeposit > 0) {
+      const freeIdx = slots.findIndex(s => s === null);
+      if (freeIdx === -1) {
+        return {
+          ok: false,
+          error: `Almacén lleno: no quedan casillas disponibles (100/100 ocupadas).`,
+        };
+      }
+      const add = Math.min(300, remainingToDeposit);
+      slots[freeIdx] = {
+        slotIndex: freeIdx,
+        id: `slot_${randomUUID().slice(0, 6)}`,
+        nombre,
+        cantidad: add,
+        categoria: requiredCategory,
+      };
+      remainingToDeposit -= add;
+    }
+
+    warehouse.slots = slots;
+    warehouses[whIdx] = warehouse;
+    this.worldState = { ...(this.worldState || {}), warehouses };
+
+    return { ok: true, warehouse };
+  }
+
+  withdrawFromWarehouse(
+    warehouseId: string,
+    slotIndex: number,
+    cantidad: number,
+  ): { ok: boolean; item?: { nombre: string; cantidad: number; categoria: string }; warehouse?: BackendWarehouse; error?: string } {
+    const warehouses = this.getWarehouses();
+    const whIdx = warehouses.findIndex(w => w.id === warehouseId);
+    if (whIdx === -1) return { ok: false, error: 'Almacén no encontrado.' };
+
+    const warehouse = { ...warehouses[whIdx] };
+    const slots = [...warehouse.slots];
+
+    if (slotIndex < 0 || slotIndex >= 100 || !slots[slotIndex]) {
+      return { ok: false, error: 'Casilla vacía o inválida.' };
+    }
+
+    const slot = slots[slotIndex]!;
+    if (cantidad <= 0) return { ok: false, error: 'La cantidad debe ser mayor a 0.' };
+
+    const withdrawQty = Math.min(slot.cantidad, cantidad);
+    const remainingInSlot = slot.cantidad - withdrawQty;
+
+    if (remainingInSlot <= 0) {
+      slots[slotIndex] = null;
+    } else {
+      slots[slotIndex] = { ...slot, cantidad: remainingInSlot };
+    }
+
+    warehouse.slots = slots;
+    warehouses[whIdx] = warehouse;
+    this.worldState = { ...(this.worldState || {}), warehouses };
+
+    return {
+      ok: true,
+      item: {
+        nombre: slot.nombre,
+        cantidad: withdrawQty,
+        categoria: slot.categoria,
+      },
+      warehouse,
+    };
   }
 
   /**

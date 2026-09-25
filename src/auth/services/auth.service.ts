@@ -36,8 +36,15 @@ export class AuthService {
   }
 
   async updateSettings(id: string, settings: any) {
+    // Claves de escritura exclusiva del servidor: se conservan siempre.
+    // Sin esto, guardar ajustes de UI (gráficos) borraría inventario/skills
+    // (game) y la última posición (lastPos) por reemplazo total.
+    const current = await this.prisma.player.findUnique({ where: { id } });
+    const cur = ((current?.settings as Record<string, unknown> | null) ?? {});
     const safe = { ...((settings as Record<string, unknown> | null) ?? {}) };
-    delete safe.game;
+    if (cur.game !== undefined) safe.game = cur.game;
+    if (cur.lastPos !== undefined) safe.lastPos = cur.lastPos;
+    if (cur.lastSeen !== undefined) safe.lastSeen = cur.lastSeen;
     const player = await this.prisma.player.update({ where: { id }, data: { settings: safe as never } });
     const { passwordHash, ...rest } = player;
     return rest;

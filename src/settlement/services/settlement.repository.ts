@@ -14,6 +14,10 @@ export class SettlementRepository {
   }
 
   async findByOwnerId(ownerId: string): Promise<SettlementDomain[]> {
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(ownerId);
+    if (!isValidObjectId) {
+      return [];
+    }
     const list = await this.prisma.settlement.findMany({ where: { ownerId } });
     return list.map((d) => new SettlementDomain(d));
   }

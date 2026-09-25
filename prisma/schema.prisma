@@ -424,10 +424,12 @@ type RecipeItem {
 }
 
 type Resource {
-  id       String     @default(uuid())
-  type     ResourceType
-  quantity String     @default("0")
-  weight   Float      @default(0.0)
+  id           String     @default(uuid())
+  type         ResourceType
+  quantity     String     @default("0")
+  weight       Float      @default(0.0)
+  calidad      String?
+  durabilidad  Float?
 }
 
 // Para compatibilidad hacia atrás: tipo HistoryLog embebido

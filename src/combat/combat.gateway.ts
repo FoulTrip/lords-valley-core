@@ -7,9 +7,10 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
-import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Logger, OnModuleDestroy, OnModuleInit, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
-import { CombatService } from './combat.service';
+import { CombatService, type FighterLoadout } from './combat.service';
+import { getEquipmentStats, getWeaponStats } from '../player/item-catalog';
 import { SettlementRepository } from '../settlement/services/settlement.repository';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -33,17 +34,106 @@ import {
   namespace: 'combat',
 })
 @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
-export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(CombatGateway.name);
+  private tickTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly combatService: CombatService,
     private readonly settlementRepository: SettlementRepository,
     private readonly prisma: PrismaService,
   ) {}
+
+  /** Tick de efectos (hemorragia/quemadura/frío/HoT) cada 1s; difunde HP y muertes. */
+  onModuleInit(): void {
+    if (this.tickTimer) return;
+    this.tickTimer = setInterval(() => {
+      try {
+        const events = this.combatService.tickEffects(Date.now());
+        for (const ev of events) {
+          if (ev.targetKind === 'ghost') {
+            this.server.to(ev.settlementId).emit('ghost:damage_result', {
+              ghostId: ev.targetId, applied: true, newHp: ev.hp, isDead: ev.dead,
+            });
+            if (ev.diedThisTick) {
+              this.server.to(ev.settlementId).emit('ghost:died', { ghostId: ev.targetId });
+            }
+          } else {
+            this.server.to(ev.settlementId).emit('combat:dot_tick', {
+              targetId: ev.targetId, targetKind: ev.targetKind,
+              hp: ev.hp, maxHp: ev.maxHp, dead: ev.dead, slowMovePct: ev.slowMovePct,
+            });
+            if (ev.diedThisTick) {
+              this.server.to(ev.settlementId).emit('combat:died', {
+                targetId: ev.targetId, targetKind: ev.targetKind, settlementId: ev.settlementId,
+              });
+            }
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`[Combat] tickEffects falló: ${(err as Error)?.message ?? err}`);
+      }
+    }, 1000);
+  }
+
+  onModuleDestroy(): void {
+    if (this.tickTimer) {
+      clearInterval(this.tickTimer);
+      this.tickTimer = null;
+    }
+  }
+
+  /**
+   * Carga el loadout persistido del dueño del settlement (equipo + bonus de
+   * elixir + buffs vigentes). Es la vía autoritativa para el atacante o
+   * defensor player: el cliente nunca decide estos valores.
+   */
+  private async loadOwnerLoadout(settlementId: string): Promise<FighterLoadout | undefined> {
+    try {
+      if (!settlementId) return undefined;
+      const settlement = await this.settlementRepository.findById(settlementId);
+      const ownerId = (settlement as any)?.rawData?.ownerId as string | undefined;
+      if (!ownerId) return undefined;
+      const player = await this.prisma.player.findUnique({ where: { id: ownerId } });
+      const game = (player?.settings as Record<string, unknown> | null)?.game as
+        | { equipment?: { weapon?: unknown; weapon2?: unknown; activeWeapon?: unknown; armor?: unknown; weaponCalidad?: unknown; weapon2Calidad?: unknown; armorCalidad?: unknown }; damageBonus?: unknown; buffs?: unknown }
+        | undefined;
+      if (!game || typeof game !== 'object') return undefined;
+      const now = Date.now();
+      const useSecond = game.equipment?.activeWeapon === 2;
+      const activeWeaponName = useSecond ? game.equipment?.weapon2 : game.equipment?.weapon;
+      const activeWeaponCalidad = useSecond ? game.equipment?.weapon2Calidad : game.equipment?.weaponCalidad;
+      const weapon = typeof activeWeaponName === 'string' && getWeaponStats(activeWeaponName)
+        ? activeWeaponName
+        : null;
+      const armor = typeof game.equipment?.armor === 'string' && getEquipmentStats(game.equipment.armor)
+        ? game.equipment.armor
+        : null;
+      const weaponCalidad = typeof activeWeaponCalidad === 'string'
+        ? activeWeaponCalidad
+        : 'comun';
+      const armorCalidad = typeof game.equipment?.armorCalidad === 'string'
+        ? game.equipment.armorCalidad
+        : 'comun';
+      const damageBonus = typeof game.damageBonus === 'number' && game.damageBonus > 0
+        ? Math.floor(game.damageBonus)
+        : 0;
+      const buffs = Array.isArray(game.buffs)
+        ? game.buffs.filter(
+            (b): b is { kind: 'resist_fire' | 'resist_cold' | 'immune_negative' | 'immune_burn' | 'hot' | 'attack_slow' | 'move_slow'; value: number; expiresAt: number } =>
+              !!b && typeof b === 'object' &&
+              typeof (b as any).expiresAt === 'number' && (b as any).expiresAt > now &&
+              typeof (b as any).value === 'number',
+          )
+        : [];
+      return { weapon, armor, weaponCalidad, armorCalidad, damageBonus, buffs };
+    } catch {
+      return undefined;
+    }
+  }
 
   handleConnection(client: Socket): void {
     this.logger.log(`[Combat] Client connected: ${client.id}`);
@@ -113,12 +203,16 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() dto: GhostDamageDto,
   ): Promise<void> {
+    // Loadout autoritativo del dueño (arma/daño persistidos); el arma
+    // reportada solo se usa si no hay equipo persistido (survivors).
+    let attackerLoadout = dto.settlementId ? await this.loadOwnerLoadout(dto.settlementId) : undefined;
     const result = this.combatService.applyDamageToGhost(
       dto.ghostId,
       dto.amount,
       dto.attackerId,
       dto.attackerX,
       dto.attackerY,
+      { weapon: attackerLoadout?.weapon ?? dto.weapon ?? null, attackerLoadout },
     );
 
     // Respuesta al atacante
@@ -174,6 +268,7 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       dto.settlementId,
       gameMode,
       godMode,
+      await this.loadOwnerLoadout(dto.settlementId),
     );
 
     // Enviar resultado al cliente que reportó (es el mismo jugador afectado)
@@ -192,6 +287,15 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() dto: CombatHitDto,
   ): Promise<void> {
+    // Vía autoritativa para el player (atacante o defensor): equipo, bonus
+    // de elixir y buffs persistidos del dueño. Survivors/dragones/ghosts usan
+    // sus valores canónicos (+ arma validada si la reportan).
+    const attackerLoadout = dto.attackerKind === 'player'
+      ? await this.loadOwnerLoadout(dto.settlementId)
+      : undefined;
+    const defenderLoadout = dto.targetKind === 'player'
+      ? (dto.attackerKind === 'player' ? attackerLoadout : await this.loadOwnerLoadout(dto.settlementId))
+      : undefined;
     const result = this.combatService.applyCombatHit({
       attackerId: dto.attackerId,
       attackerKind: dto.attackerKind,
@@ -203,6 +307,9 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       targetY: dto.targetY,
       settlementId: dto.settlementId,
       amount: dto.amount,
+      weapon: attackerLoadout?.weapon ?? dto.weapon ?? null,
+      attackerLoadout,
+      defenderLoadout,
     });
 
     client.emit('combat:hit_result', { ...result, targetKind: dto.targetKind });

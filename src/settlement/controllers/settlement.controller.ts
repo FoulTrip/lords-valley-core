@@ -25,6 +25,7 @@ import { SettlementService } from '../services/settlement.service';
 import { CreateSettlementDto } from '../dto/create-settlement.dto';
 import { UpdatePrioritiesDto } from '../dto/update-priorities.dto';
 import { SettlementResponseDto } from '../dto/settlement-response.dto';
+import { CreateWarehouseDto, DepositWarehouseDto, WithdrawWarehouseDto } from '../dto/warehouse.dto';
 
 @ApiTags('settlements')
 @Controller('settlements')
@@ -45,6 +46,12 @@ export class SettlementController {
   @ApiParam({ name: 'ownerId', description: 'ObjectId del Player' })
   @ApiOkResponse({ type: [SettlementResponseDto] })
   async findByOwner(@Param('ownerId') ownerId: string): Promise<SettlementResponseDto[]> {
+    const isValidObjectId = /^[0-9a-fA-F]{24}$/.test(ownerId);
+    if (!isValidObjectId) {
+      console.warn(`[SettlementController] ownerId inválido recibido: ${ownerId}`);
+      // evitar error Prisma por ObjectId mal formado
+      return [];
+    }
     return this.settlementService.findByOwner(ownerId);
   }
 
@@ -172,5 +179,50 @@ export class SettlementController {
       throw new BadRequestException('mode debe ser "creative" o "survival"');
     }
     return this.settlementService.setGameMode(id, body.mode);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // ALMACENES: Endpoints autoritativos
+  // ──────────────────────────────────────────────────────────────────────────
+
+  @Get(':id/warehouses')
+  @ApiOperation({ summary: 'Obtener almacenes del asentamiento' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  async getWarehouses(@Param('id') id: string) {
+    return this.settlementService.getWarehouses(id);
+  }
+
+  @Post(':id/warehouses')
+  @ApiOperation({ summary: 'Crear nuevo almacén (server-validated limits & 3x3 footprint)' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  async createWarehouse(
+    @Param('id') id: string,
+    @Body() dto: CreateWarehouseDto,
+  ) {
+    return this.settlementService.createWarehouse(id, dto);
+  }
+
+  @Post(':id/warehouses/:warehouseId/deposit')
+  @ApiOperation({ summary: 'Depositar ítem en almacén (server-validated category, 100 slots, maxStack 300)' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  @ApiParam({ name: 'warehouseId', description: 'ID del almacén' })
+  async depositToWarehouse(
+    @Param('id') id: string,
+    @Param('warehouseId') warehouseId: string,
+    @Body() dto: DepositWarehouseDto,
+  ) {
+    return this.settlementService.depositToWarehouse(id, warehouseId, dto);
+  }
+
+  @Post(':id/warehouses/:warehouseId/withdraw')
+  @ApiOperation({ summary: 'Retirar ítem de almacén (server-validated)' })
+  @ApiParam({ name: 'id', description: 'ObjectId del settlement' })
+  @ApiParam({ name: 'warehouseId', description: 'ID del almacén' })
+  async withdrawFromWarehouse(
+    @Param('id') id: string,
+    @Param('warehouseId') warehouseId: string,
+    @Body() dto: WithdrawWarehouseDto,
+  ) {
+    return this.settlementService.withdrawFromWarehouse(id, warehouseId, dto);
   }
 }

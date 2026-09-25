@@ -50,6 +50,16 @@ export class GhostDamageDto {
   @ApiProperty({ description: 'Posición Y del atacante en el mundo' })
   @IsNumber()
   attackerY!: number;
+
+  @ApiProperty({ description: 'Arma equipada del atacante (nombre de catálogo; el servidor valida y decreta daño/hemorragia)', required: false })
+  @IsOptional()
+  @IsString()
+  weapon?: string;
+
+  @ApiProperty({ description: 'ID del settlement (para cargar el equipo persistido del dueño)', required: false })
+  @IsOptional()
+  @IsString()
+  settlementId?: string;
 }
 
 export class PlayerAttackedDto {
@@ -156,12 +166,17 @@ export class CombatHitDto {
   @IsString()
   settlementId!: string;
 
-  @ApiProperty({ description: 'Monto solo para atacante player (acotado a 200)', required: false })
+  @ApiProperty({ description: 'Monto solo para atacante player sin arma (acotado a 200)', required: false })
   @IsOptional()
   @IsNumber()
   @Min(1)
   @Max(500)
   amount?: number;
+
+  @ApiProperty({ description: 'Arma equipada del atacante (nombre de catálogo; el servidor valida y decreta daño/hemorragia)', required: false })
+  @IsOptional()
+  @IsString()
+  weapon?: string;
 }
 
 /** Resultado autoritativo de un golpe genérico */
