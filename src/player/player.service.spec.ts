@@ -74,6 +74,20 @@ describe('PlayerService (autoridad del servidor)', () => {
     expect(inv[0].categoria).toBe('Recursos en Bruto');
   });
 
+  it('acepta Residuo Vegetal y Fertilizante (compostaje) como Recursos en Bruto', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
+    const invW = await svc.addItem('p1', { nombre: 'residuo vegetal', cantidad: 3 });
+    expect(invW).toHaveLength(1);
+    expect(invW[0].nombre).toBe('Residuo Vegetal');
+    expect(invW[0].categoria).toBe('Recursos en Bruto');
+    expect(invW[0].icono).toBe('🍂');
+    const invF = await svc.addItem('p1', { nombre: 'Fertilizante', cantidad: 1 });
+    expect(invF).toHaveLength(2);
+    expect(invF[1].nombre).toBe('Fertilizante');
+    expect(invF[1].icono).toBe('💩');
+  });
+
   it('resuelve alias de escuela EN y añade pergaminos', async () => {
     const prisma = mockPrisma({});
     const svc = new PlayerService(prisma as never, mockCombat() as never);
@@ -111,6 +125,114 @@ describe('PlayerService (autoridad del servidor)', () => {
     const inv = await svc.addItem('p1', { nombre: 'Daga', cantidad: 1 });
     await expect(svc.useItem('p1', { stackId: inv[0].id })).rejects.toBeInstanceOf(ForbiddenException);
     expect(await svc.getInventory('p1')).toHaveLength(1);
+  });
+
+  it('equipa casco, botas y guantes en su slot y persisten al recargar', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
+    for (const nombre of ['Casco', 'Botas de Cuero', 'Guantes']) {
+      const inv = await svc.addItem('p1', { nombre, cantidad: 1 });
+      const res = await svc.equipItem('p1', inv[inv.length - 1].id);
+      expect(res.slot).toBe(nombre === 'Casco' ? 'casco' : nombre === 'Botas de Cuero' ? 'botas' : 'guantes');
+    }
+    const eq = await svc.getEquipment('p1');
+    expect(eq.helmet).toBe('Casco');
+    expect(eq.boots).toBe('Botas de Cuero');
+    expect(eq.gloves).toBe('Guantes');
+    // Simula recarga (nueva instancia lee el mismo settings persistido):
+    // sanitize debe conservar los nombres, igual que arma y armadura.
+    const svc2 = new PlayerService(prisma as never, mockCombat() as never);
+    const eq2 = await svc2.getEquipment('p1');
+    expect(eq2.helmet).toBe('Casco');
+    expect(eq2.boots).toBe('Botas de Cuero');
+    expect(eq2.gloves).toBe('Guantes');
+  });
+
+  it('la Capa va en el slot "capa", no en "armadura", y persiste al recargar', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
+    const inv = await svc.addItem('p1', { nombre: 'Capa', cantidad: 1 });
+    const res = await svc.equipItem('p1', inv[0].id);
+    expect(res.slot).toBe('capa');
+    expect(res.equipment.cape).toBe('Capa');
+    expect(res.equipment.armor).toBeNull();
+    const svc2 = new PlayerService(prisma as never, mockCombat() as never);
+    const eq2 = await svc2.getEquipment('p1');
+    expect(eq2.cape).toBe('Capa');
+    // Desequipar la capa la devuelve al inventario
+    const un = await svc2.unequipSlot('p1', 'capa');
+    expect(un.equipment.cape).toBeNull();
+    expect(un.inventory.some((s) => s.nombre === 'Capa')).toBe(true);
+  });
+
+  it('la Cota de Malla sigue yendo a "armadura"', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
+    const inv = await svc.addItem('p1', { nombre: 'Cota de Malla', cantidad: 1 });
+    const res = await svc.equipItem('p1', inv[0].id);
+    expect(res.slot).toBe('armadura');
+    expect(res.equipment.armor).toBe('Cota de Malla');
+  });
+
+  it('el Escudo se equipa en "escudo" con calidad y engarces, y persiste', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
+    const inv = await svc.addItem('p1', { nombre: 'Escudo', cantidad: 1, calidad: 'raro' });
+    expect(inv[0].calidad).toBe('raro');
+    expect(inv[0].sockets).toEqual({ encantamientos: [], runas: [], gemas: [] });
+    const res = await svc.equipItem('p1', inv[0].id);
+    expect(res.slot).toBe('escudo');
+    expect(res.equipment.shield).toBe('Escudo');
+    expect(res.equipment.shieldCalidad).toBe('raro');
+    const svc2 = new PlayerService(prisma as never, mockCombat() as never);
+    const eq2 = await svc2.getEquipment('p1');
+    expect(eq2.shield).toBe('Escudo');
+    expect(eq2.shieldCalidad).toBe('raro');
+    expect(eq2.shieldSockets).toEqual({ encantamientos: [], runas: [], gemas: [] });
+  });
+
+  it('los engarces se sanean al leer y viajan al equipar/desequipar', async () => {
+    const prisma = mockPrisma({
+      game: {
+        inventory: [{
+          id: 's1', nombre: 'Escudo', categoria: 'Equipo', cantidad: 1,
+          maxStack: 1, stackable: false,
+          sockets: { encantamientos: ['Filo ígneo', 42, '', 'x'.repeat(100)], runas: ['Runa lobo'], gemas: 'no-array', otro: [1] },
+        }],
+      },
+    });
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
+    const inv = await svc.getInventory('p1');
+    expect(inv[0].sockets).toEqual({ encantamientos: ['Filo ígneo', 'x'.repeat(60)], runas: ['Runa lobo'], gemas: [] });
+    const res = await svc.equipItem('p1', 's1');
+    expect(res.equipment.shieldSockets).toEqual({ encantamientos: ['Filo ígneo', 'x'.repeat(60)], runas: ['Runa lobo'], gemas: [] });
+    const un = await svc.unequipSlot('p1', 'escudo');
+    expect(un.equipment.shield).toBeNull();
+    expect(un.inventory.find((s) => s.nombre === 'Escudo')?.sockets).toEqual(
+      { encantamientos: ['Filo ígneo', 'x'.repeat(60)], runas: ['Runa lobo'], gemas: [] },
+    );
+  });
+
+  it('la Poción de Furia daña con bonus temporal y la de Invisibilidad bufa 10s', async () => {
+    const prisma = mockPrisma({});
+    const svc = new PlayerService(prisma as never, mockCombat() as never);
+    const invF = await svc.addItem('p1', { nombre: 'Poción de Furia', cantidad: 1 });
+    const usedF = await svc.useItem('p1', { stackId: invF[0].id });
+    expect(usedF.effect).toMatch(/furia/i);
+    const fury = (usedF as { buffs: { kind: string; value: number; expiresAt: number }[] }).buffs
+      .find((b) => b.kind === 'damage_boost');
+    expect(fury?.value).toBe(30);
+    expect(fury!.expiresAt).toBeGreaterThan(Date.now() + 20_000);
+    const invI = await svc.addItem('p1', { nombre: 'Poción de Invisibilidad', cantidad: 1 });
+    const usedI = await svc.useItem('p1', { stackId: invI[0].id });
+    expect(usedI.effect).toMatch(/invisible/i);
+    const buffs = await svc.getBuffs('p1');
+    const kinds = buffs.map((b) => b.kind);
+    expect(kinds).toContain('damage_boost');
+    expect(kinds).toContain('invisible');
+    const invis = buffs.find((b) => b.kind === 'invisible')!;
+    expect(invis.expiresAt).toBeGreaterThan(Date.now());
+    expect(invis.expiresAt).toBeLessThanOrEqual(Date.now() + 11_000);
   });
 
   it('eliminar stack ajeno no existe', async () => {

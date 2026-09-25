@@ -9,6 +9,7 @@ import {
   TRAINING_XP,
   TRAINING_SCROLL_NAMES,
   describeEffect,
+  emptySockets,
   findCatalogEntry,
   getConsumableCombat,
   getConsumableEffect,
@@ -19,7 +20,9 @@ import {
   maxDurabilityForQuality,
   maxStackForCategory,
   parseSchool,
+  sanitizeSockets,
   scrollSchoolFromName,
+  type EquipmentSockets,
   type ItemCategory,
   type ItemQuality,
   type SchoolId,
@@ -41,6 +44,8 @@ export interface InventoryStack {
   descripcion?: string;
   calidad?: 'comun'|'bueno'|'raro'|'notable'|'sobresaliente'|'excelente'|'obra maestra'|'legendario'|'dios';
   durabilidad?: number;
+  /** Engarces de la pieza (solo Armas/Equipo; vacíos por ahora). */
+  sockets?: EquipmentSockets;
 }
 
 export interface DevState {
@@ -55,7 +60,7 @@ export interface PlayerNeeds {
   updatedAt: number;
 }
 
-export type EquipSlot = 'arma' | 'arma1' | 'arma2' | 'armadura' | 'casco' | 'botas' | 'guantes' | 'escudo' | 'collar' | 'anillo';
+export type EquipSlot = 'arma' | 'arma1' | 'arma2' | 'armadura' | 'casco' | 'botas' | 'guantes' | 'escudo' | 'collar' | 'anillo' | 'capa';
 
 export interface PlayerEquipment {
   /** Nombre canónico del arma equipada en slot 1 (catálogo Armas) o null. */
@@ -72,6 +77,7 @@ export interface PlayerEquipment {
   shield?: string | null;
   necklace?: string | null;
   ring?: string | null;
+  cape?: string | null;
   /** Calidad del item equipado por slot (solo Armas/Equipo la usan en combate). */
   weaponCalidad?: ItemQuality | null;
   weapon2Calidad?: ItemQuality | null;
@@ -82,6 +88,7 @@ export interface PlayerEquipment {
   shieldCalidad?: ItemQuality | null;
   necklaceCalidad?: ItemQuality | null;
   ringCalidad?: ItemQuality | null;
+  capeCalidad?: ItemQuality | null;
   /** Durabilidad restante del item equipado por slot. */
   weaponDurabilidad?: number | null;
   weapon2Durabilidad?: number | null;
@@ -92,6 +99,18 @@ export interface PlayerEquipment {
   shieldDurabilidad?: number | null;
   necklaceDurabilidad?: number | null;
   ringDurabilidad?: number | null;
+  capeDurabilidad?: number | null;
+  /** Engarces de la pieza equipada por slot (modelo + UI; sin bonus por ahora). */
+  weaponSockets?: EquipmentSockets | null;
+  weapon2Sockets?: EquipmentSockets | null;
+  armorSockets?: EquipmentSockets | null;
+  helmetSockets?: EquipmentSockets | null;
+  bootsSockets?: EquipmentSockets | null;
+  glovesSockets?: EquipmentSockets | null;
+  shieldSockets?: EquipmentSockets | null;
+  necklaceSockets?: EquipmentSockets | null;
+  ringSockets?: EquipmentSockets | null;
+  capeSockets?: EquipmentSockets | null;
 }
 
 const VALID_QUALITIES: ReadonlySet<string> = new Set([
@@ -162,7 +181,7 @@ function emptyState(): GameState {
     skills: emptySkills(),
     dev: { godMode: false },
     needs: { hunger: 0, thirst: 0, updatedAt: Date.now() },
-    equipment: { weapon: null, weapon2: null, activeWeapon: 1, armor: null },
+    equipment: { weapon: null, weapon2: null, activeWeapon: 1, armor: null, helmet: null, boots: null, gloves: null, shield: null, necklace: null, ring: null, cape: null },
     damageBonus: 0,
     buffs: [],
   };
@@ -197,6 +216,9 @@ function sanitize(raw: unknown): GameState {
       ...(typeof s.descripcion === 'string' ? { descripcion: s.descripcion } : {}),
       ...(typeof s.calidad === 'string' ? { calidad: s.calidad as InventoryStack['calidad'] } : {}),
       ...(typeof s.durabilidad === 'number' ? { durabilidad: Math.max(0, Math.min(1000, s.durabilidad)) } : {}),
+      ...((s.categoria === 'Armas' || s.categoria === 'Equipo') && s.sockets !== undefined
+        ? { sockets: sanitizeSockets(s.sockets as unknown) }
+        : {}),
     }));
   }
   if (o.skills && typeof o.skills === 'object') {    const skills = o.skills as Record<string, unknown>;
@@ -234,11 +256,24 @@ function sanitize(raw: unknown): GameState {
     if (typeof eq.weapon2 === 'string' && getWeaponStats(eq.weapon2)) state.equipment.weapon2 = getWeaponStats(eq.weapon2)!.nombre;
     if (eq.activeWeapon === 2) state.equipment.activeWeapon = 2;
     if (typeof eq.armor === 'string' && getEquipmentStats(eq.armor)) state.equipment.armor = getEquipmentStats(eq.armor)!.nombre;
-    for (const slot of ['weapon', 'weapon2', 'armor', 'helmet', 'boots', 'gloves', 'shield', 'necklace', 'ring'] as const) {
+    // Resto de slots de equipo: se restauran igual que el arma y la armadura
+    // (antes se perdían al recargar porque solo se validaba 'armor').
+    const EQUIP_NAME_TO_KEY = { helmet: 'helmet', boots: 'boots', gloves: 'gloves', shield: 'shield', necklace: 'necklace', ring: 'ring', cape: 'cape' } as const;
+    for (const [rawKey, stateKey] of Object.entries(EQUIP_NAME_TO_KEY)) {
+      const v = eq[rawKey];
+      if (typeof v === 'string' && getEquipmentStats(v)) {
+        (state.equipment as unknown as Record<string, unknown>)[stateKey] = getEquipmentStats(v)!.nombre;
+      }
+    }
+    for (const slot of ['weapon', 'weapon2', 'armor', 'helmet', 'boots', 'gloves', 'shield', 'necklace', 'ring', 'cape'] as const) {
       const q = asQuality((eq as Record<string, unknown>)[`${slot}Calidad`]);
       if (q) (state.equipment as unknown as Record<string, unknown>)[`${slot}Calidad`] = q;
       const d = asDurability((eq as Record<string, unknown>)[`${slot}Durabilidad`]);
       if (d !== null) (state.equipment as unknown as Record<string, unknown>)[`${slot}Durabilidad`] = d;
+      const so = (eq as Record<string, unknown>)[`${slot}Sockets`];
+      if (so !== undefined && so !== null) {
+        (state.equipment as unknown as Record<string, unknown>)[`${slot}Sockets`] = sanitizeSockets(so);
+      }
     }
   }
   if (typeof o.damageBonus === 'number' && Number.isFinite(o.damageBonus)) {
@@ -246,7 +281,7 @@ function sanitize(raw: unknown): GameState {
   }
   if (Array.isArray(o.buffs)) {
     const now = Date.now();
-    const kinds: TimedBuffKind[] = ['resist_fire', 'resist_cold', 'immune_negative', 'immune_burn', 'hot', 'attack_slow', 'move_slow'];
+    const kinds: TimedBuffKind[] = ['resist_fire', 'resist_cold', 'immune_negative', 'immune_burn', 'hot', 'attack_slow', 'move_slow', 'damage_boost', 'invisible'];
     for (const b of o.buffs as unknown[]) {
       if (!b || typeof b !== 'object') continue;
       const e = b as Record<string, unknown>;
@@ -464,22 +499,23 @@ export class PlayerService {
     } else {
        const entry = findCatalogEntry(input.nombre as string);
       if (!entry) throw new BadRequestException(`Item "${input.nombre}" no existe en el catálogo`);
-      const meta = getItemMeta(entry.nombre);
-      const isWeaponOrEquip = entry.categoria === 'Armas' || entry.categoria === 'Equipo';
-      pushStack(
-        state,
-        {
-          nombre: entry.nombre,
-          categoria: entry.categoria,
-          maxStack: maxStackForCategory(entry.categoria),
-          stackable: isStackableCategory(entry.categoria),
-          ...(meta?.icono ? { icono: meta.icono } : {}),
-          ...(meta?.descripcion ? { descripcion: meta.descripcion } : {}),
-          ...(isWeaponOrEquip && input.calidad ? { calidad: input.calidad } : {}),
-          ...(isWeaponOrEquip ? { durabilidad: maxDurabilityForQuality(input.calidad ?? 'comun') } : {}),
-        },
-        qty,
-      );
+       const meta = getItemMeta(entry.nombre);
+       const isWeaponOrEquip = entry.categoria === 'Armas' || entry.categoria === 'Equipo';
+       pushStack(
+         state,
+         {
+           nombre: entry.nombre,
+           categoria: entry.categoria,
+           maxStack: maxStackForCategory(entry.categoria),
+           stackable: isStackableCategory(entry.categoria),
+           ...(meta?.icono ? { icono: meta.icono } : {}),
+           ...(meta?.descripcion ? { descripcion: meta.descripcion } : {}),
+           ...(isWeaponOrEquip && input.calidad ? { calidad: input.calidad } : {}),
+           ...(isWeaponOrEquip ? { durabilidad: maxDurabilityForQuality(input.calidad ?? 'comun') } : {}),
+           ...(isWeaponOrEquip ? { sockets: emptySockets() } : {}),
+         },
+         qty,
+       );
     }
     const saved = await this.save(playerId, settings, state);
     return saved.inventory;
@@ -603,6 +639,7 @@ export class PlayerService {
         needs: { ...state.needs },
         effect: `${nombre}: +${fx.aoe.damage} en ${fx.aoe.radiusTiles} tiles a ${res.hits.length} objetivo(s) + daño +${fx.aoe.dot.damage}/${fx.aoe.dot.durationSec}s${extra}.`,
         hits: res.hits,
+        buffs: state.buffs.filter((b) => b.expiresAt > Date.now()),
       };
     }
 
@@ -625,8 +662,17 @@ export class PlayerService {
       );
       notes.push(`+${fx.damageBuff} daño base permanente (total +${state.damageBonus})`);
     }
-    if (fx.cleanseBleed || fx.cleanseAll) {
-      const rec = this.combat.findTargetRecord('player', 'player', settlementId);
+    if (fx.damageBoost) {
+      state.buffs = state.buffs.filter((b) => b.kind !== 'damage_boost');
+      state.buffs.push({ kind: 'damage_boost', value: fx.damageBoost.bonus, expiresAt: now + fx.damageBoost.secs * 1000 });
+      notes.push(`+${fx.damageBoost.bonus} daño base durante ${fx.damageBoost.secs}s (furia)`);
+    }
+    if (fx.invisibleSec) {
+      state.buffs = state.buffs.filter((b) => b.kind !== 'invisible');
+      state.buffs.push({ kind: 'invisible', value: 1, expiresAt: now + fx.invisibleSec * 1000 });
+      notes.push(`invisible ${fx.invisibleSec}s: indetectable para enemigos`);
+    }
+    if (fx.cleanseBleed || fx.cleanseAll) {      const rec = this.combat.findTargetRecord('player', 'player', settlementId);
       const removed = this.combat.cleanseEntity(rec, fx.cleanseAll ? 'all' : 'hemorragia');
       notes.push(fx.cleanseAll ? `purga total (${removed} efectos)` : `hemorragia purgada (${removed})`);
     }
@@ -671,8 +717,23 @@ export class PlayerService {
       needs: { ...saved.needs },
       equipment: { ...saved.equipment },
       damageBonus: saved.damageBonus,
+      buffs: saved.buffs.filter((b) => b.expiresAt > Date.now()),
       effect: notes.length > 0 ? `${nombre}: ${notes.join(' · ')}.` : `${nombre} usado.`,
     };
+  }
+
+  /** Buffs temporizados vigentes del jugador (expirados podados y persistidos). */
+  async getBuffs(playerId: string): Promise<TimedBuff[]> {
+    const { state, settings } = await this.load(playerId);
+    const now = Date.now();
+    const active = state.buffs.filter((b) => b.expiresAt > now);
+    if (active.length !== state.buffs.length) {
+      state.buffs = active;
+      await this.save(playerId, settings, state);
+    } else if (applyNeedsDecay(state)) {
+      await this.save(playerId, settings, state);
+    }
+    return active.map((b) => ({ ...b }));
   }
 
   async getEquipment(playerId: string): Promise<PlayerEquipment> {
@@ -681,7 +742,7 @@ export class PlayerService {
     return { ...state.equipment };
   }
 
-  private slotKey(equipment: PlayerEquipment, slot: EquipSlot): 'weapon' | 'weapon2' | 'armor' | 'helmet' | 'boots' | 'gloves' | 'shield' | 'necklace' | 'ring' {
+  private slotKey(equipment: PlayerEquipment, slot: EquipSlot): 'weapon' | 'weapon2' | 'armor' | 'helmet' | 'boots' | 'gloves' | 'shield' | 'necklace' | 'ring' | 'cape' {
     switch (slot) {
       case 'arma': return equipment.activeWeapon === 2 ? 'weapon2' : 'weapon';
       case 'arma1': return 'weapon';
@@ -693,30 +754,34 @@ export class PlayerService {
       case 'escudo': return 'shield';
       case 'collar': return 'necklace';
       case 'anillo': return 'ring';
+      case 'capa': return 'cape';
       default: return 'armor';
     }
   }
 
-  private getPrevEquipmentFull(equipment: PlayerEquipment, slot: EquipSlot): { name: string | null; calidad: ItemQuality | null; durabilidad: number | null } {
+  private getPrevEquipmentFull(equipment: PlayerEquipment, slot: EquipSlot): { name: string | null; calidad: ItemQuality | null; durabilidad: number | null; sockets: EquipmentSockets | null } {
     const key = this.slotKey(equipment, slot);
     return {
       name: (equipment[key] as string | null | undefined) ?? null,
       calidad: asQuality((equipment as unknown as Record<string, unknown>)[`${key}Calidad`]),
       durabilidad: asDurability((equipment as unknown as Record<string, unknown>)[`${key}Durabilidad`]),
+      sockets: sanitizeSockets((equipment as unknown as Record<string, unknown>)[`${key}Sockets`]),
     };
   }
 
-  private setEquipmentBySlot(equipment: PlayerEquipment, slot: EquipSlot, name: string | null, calidad?: ItemQuality | null, durabilidad?: number | null) {
+  private setEquipmentBySlot(equipment: PlayerEquipment, slot: EquipSlot, name: string | null, calidad?: ItemQuality | null, durabilidad?: number | null, sockets?: EquipmentSockets | null) {
     const key = this.slotKey(equipment, slot);
     (equipment as unknown as Record<string, unknown>)[key] = name;
     (equipment as unknown as Record<string, unknown>)[`${key}Calidad`] = calidad ?? null;
     (equipment as unknown as Record<string, unknown>)[`${key}Durabilidad`] = typeof durabilidad === 'number' ? durabilidad : null;
+    (equipment as unknown as Record<string, unknown>)[`${key}Sockets`] = sockets ? sanitizeSockets(sockets) : null;
   }
 
   /**
-   * Equipa un arma (slot 'arma') o equipo (slot 'armadura') desde un stack del
-   * inventario. El stack sale del inventario; lo que hubiera equipado vuelve.
-   * Valida el nombre contra el catálogo (Túnica incluida, sin atributos).
+   * Equipa un arma (slots 'arma1'/'arma2') o una pieza de equipo
+   * ('armadura', 'casco', 'botas', 'guantes', 'escudo', 'collar', 'anillo',
+   * 'capa') desde un stack del inventario. El stack sale del inventario;
+   * lo que hubiera equipado vuelve. Valida el nombre contra el catálogo.
    */
   async equipItem(playerId: string, stackId: string, targetSlot?: string): Promise<{ inventory: InventoryStack[]; equipment: PlayerEquipment; slot: EquipSlot }> {
     const { state, settings } = await this.load(playerId);
@@ -745,9 +810,11 @@ export class PlayerService {
       if (targetSlot === 'arma1' || targetSlot === 'arma2') {
         throw new BadRequestException('Ese slot solo admite armas.');
       }
-      // Mapeo de nombre a slot de equipo
+      // Mapeo de nombre a slot de equipo (misma tabla que el frontend:
+      // EquippedSlotsGrid.equipoSlotForName; la Capa va en su propio slot).
       const n = stack.nombre.toLowerCase();
-      if (n.includes('cota') || n.includes('túnica') || n.includes('tunica') || n.includes('pecho') || n.includes('coraza') || n.includes('capa')) slot = 'armadura';
+      if (n.includes('capa')) slot = 'capa';
+      else if (n.includes('cota') || n.includes('túnica') || n.includes('tunica') || n.includes('pecho') || n.includes('coraza')) slot = 'armadura';
       else if (n.includes('casco') || n.includes('yelmo')) slot = 'casco';
       else if (n.includes('bota')) slot = 'botas';
       else if (n.includes('guante')) slot = 'guantes';
@@ -768,7 +835,7 @@ export class PlayerService {
     } else {
       state.inventory.splice(idx, 1);
     }
-    // Devuelve lo equipado al inventario (conservando su calidad y durabilidad)
+    // Devuelve lo equipado al inventario (conservando calidad, durabilidad y engarces)
     const prev = this.getPrevEquipmentFull(state.equipment, slot);
     if (prev.name) {
       const entry = findCatalogEntry(prev.name);
@@ -788,6 +855,7 @@ export class PlayerService {
             ...(typeof prev.durabilidad === 'number'
               ? { durabilidad: prev.durabilidad }
               : { durabilidad: maxDurabilityForQuality(prevCalidad) }),
+            sockets: prev.sockets ?? emptySockets(),
           },
           1,
         );
@@ -799,6 +867,7 @@ export class PlayerService {
       canonical,
       asQuality(stack.calidad) ?? 'comun',
       typeof stack.durabilidad === 'number' ? stack.durabilidad : maxDurabilityForQuality(asQuality(stack.calidad) ?? 'comun'),
+      stack.sockets ? sanitizeSockets(stack.sockets) : emptySockets(),
     );
     const saved = await this.save(playerId, settings, state);
     return { inventory: saved.inventory, equipment: { ...saved.equipment }, slot };
@@ -827,6 +896,7 @@ export class PlayerService {
         ...(typeof prev.durabilidad === 'number'
           ? { durabilidad: prev.durabilidad }
           : { durabilidad: maxDurabilityForQuality(prevCalidad) }),
+        sockets: prev.sockets ?? emptySockets(),
       },
       1,
     );

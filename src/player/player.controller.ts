@@ -36,19 +36,25 @@ export class PlayerController {
   }
 
   @Get('me/equipment')
-  @ApiOperation({ summary: 'Equipo del jugador (arma + armadura)' })
+  @ApiOperation({ summary: 'Equipo del jugador (armas + armadura, casco, botas, guantes, escudo, collar, anillo, capa)' })
   equipment(@Request() req: { user: { id: string } }) {
     return this.player.getEquipment(req.user.id);
   }
 
+  @Get('me/buffs')
+  @ApiOperation({ summary: 'Buffs temporizados vigentes del jugador (furia, invisibilidad, tónico...)' })
+  buffs(@Request() req: { user: { id: string } }) {
+    return this.player.getBuffs(req.user.id);
+  }
+
   @Post('me/equipment/equip')
-  @ApiOperation({ summary: 'Equipa un arma (arma1/arma2) o equipo (casco, pecho, botas, etc.) desde un stack' })
+  @ApiOperation({ summary: 'Equipa un arma (arma1/arma2) o equipo (armadura, casco, botas, guantes, escudo, collar, anillo, capa) desde un stack' })
   equip(@Request() req: { user: { id: string } }, @Body() dto: EquipDto) {
     return this.player.equipItem(req.user.id, dto.stackId, dto.slot);
   }
 
   @Post('me/equipment/unequip')
-  @ApiOperation({ summary: 'Desequipa un slot ("arma1", "arma2", "armadura", "casco", ...) al inventario' })
+  @ApiOperation({ summary: 'Desequipa un slot ("arma1", "arma2", "armadura", "casco", "botas", "guantes", "escudo", "collar", "anillo", "capa") al inventario' })
   unequip(@Request() req: { user: { id: string } }, @Body() dto: UnequipDto) {
     return this.player.unequipSlot(req.user.id, dto.slot as EquipSlot);
   }

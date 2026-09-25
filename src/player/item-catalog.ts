@@ -79,8 +79,8 @@ export function getItemWarehouseCategory(nombre: string): WarehouseCategory | nu
 
 export const ITEM_POOLS: Record<ItemCategory, string[]> = {
   Armas: ['Espada Corta', 'Arco de Caza', 'Daga', 'Lanza', 'Maza', 'Hacha de Guerra'],
-  Equipo: ['Túnica', 'Cota de Malla', 'Botas de Cuero', 'Guantes', 'Casco', 'Capa'],
-  'Consumibles Magicos': ['Poción de Vida', 'Poción de Maná', 'Elixir de Fuerza', 'Pergamino de Fuego', 'Pergamino de Frío'],
+  Equipo: ['Túnica', 'Cota de Malla', 'Botas de Cuero', 'Guantes', 'Casco', 'Capa', 'Escudo'],
+  'Consumibles Magicos': ['Poción de Vida', 'Poción de Maná', 'Elixir de Fuerza', 'Poción de Furia', 'Poción de Invisibilidad', 'Pergamino de Fuego', 'Pergamino de Frío'],
   'Consumibles Comunes': ['Venda', 'Antídoto', 'Tónico', 'Ungüento'],
   'Comida y Bebida': ['Pan', 'Carne Seca', 'Manzana', 'Queso', 'Pescado', 'Cerveza', 'Agua', 'Odre con Agua', 'Odre vacío', 'Raciones de Comida', 'Carne', 'Trigo'],
   'Recurso Refinado': ['Lingote de Hierro', 'Lingote de Cobre', 'Lingote de Oro', 'Lingote de Plata', 'Tablón de Madera', 'Tela Fina', 'Cuero Curtido'],
@@ -103,6 +103,8 @@ export const ITEM_POOLS: Record<ItemCategory, string[]> = {
     'Sacos de Granos de Café', 'Mazorcas de Cacao',
     // Cosechas especiales
     'Manojos de Albahaca', 'Rosas Fragantes', 'Flores de Jazmín',
+    // Compostaje
+    'Residuo Vegetal', 'Fertilizante',
   ],
   Utiles: ['Hacha', 'Pico', 'Martillo', 'Cuchillo', 'Pala', 'Sierra'],
   Crias: ['Polluelo', 'Cordero', 'Ternero', 'Cerdito', 'Potrillo'],
@@ -224,10 +226,13 @@ export const ITEM_META: Record<string, ItemMeta> = {
   Guantes: { icono: '🧤', descripcion: 'Guantes: +5% velocidad de ataque.' },
   Casco: { icono: '🪖', descripcion: 'Yelmo: +5% reducción de daño recibido.' },
   Capa: { icono: '🧥', descripcion: 'Capa: +10% resistencia al fuego y al frío.' },
+  Escudo: { icono: '🛡️', descripcion: 'Escudo: +20% defensa (reducción de daño recibido).' },
   // Consumibles mágicos
   'Poción de Vida': { icono: '❤️', descripcion: 'Recupera +50 puntos de vida al usarla.' },
   'Poción de Maná': { icono: '🔷', descripcion: 'Recupera +10 puntos de maná al usarla.' },
   'Elixir de Fuerza': { icono: '💪', descripcion: 'Aumenta +20 el daño base de forma permanente.' },
+  'Poción de Furia': { icono: '😡', descripcion: '+30 daño base durante 30 segundos.' },
+  'Poción de Invisibilidad': { icono: '👁️', descripcion: 'Invisible 10 segundos: indetectable para enemigos.' },
   'Pergamino de Fuego': { icono: '🔥', descripcion: 'Inflige +100 daño de fuego en 5 tiles + quemadura +100/10s.' },
   'Pergamino de Frío': { icono: '❄️', descripcion: 'Inflige +100 daño de frío en 5 tiles + daño de frío +100/10s y -20% velocidad de ataque/movimiento.' },
   // Consumibles comunes
@@ -242,6 +247,9 @@ export const ITEM_META: Record<string, ItemMeta> = {
   'Mármol': { icono: '⬜', descripcion: 'Piedra noble para construcción.' },
   Tronco: { icono: '🪵', descripcion: 'Tronco en bruto para aserrar.' },
   'Leña': { icono: '🔥', descripcion: 'Madera menuda como combustible.' },
+  // Compostaje (del Compostador: 1 Residuo Vegetal → 1 Fertilizante en 60s con granjero)
+  'Residuo Vegetal': { icono: '🍂', descripcion: 'Resto vegetal de cosechas (1-3 por cosecha). Procésalo en un Compostador para fabricar fertilizante.' },
+  'Fertilizante': { icono: '💩', descripcion: 'Abono orgánico producido en el Compostador a partir de residuos vegetales.' },
 };
 
 export function getItemMeta(nombre: string): ItemMeta | null {
@@ -490,6 +498,7 @@ export const EQUIPMENT_STATS: Record<string, EquipmentStats> = {
   Guantes: { attackSpeedPct: 0.05 },
   Casco: { damageReduction: 0.05 },
   Capa: { fireResist: 0.1, coldResist: 0.1 },
+  Escudo: { damageReduction: 0.2 },
 };
 
 export const ARMOR_NAMES = Object.keys(EQUIPMENT_STATS);
@@ -580,6 +589,10 @@ export interface ConsumableCombat {
   mana?: number;
   /** Elixir de Fuerza: +daño base permanente. */
   damageBuff?: number;
+  /** Poción de Furia: +daño base temporal (no permanente). */
+  damageBoost?: { bonus: number; secs: number };
+  /** Poción de Invisibilidad: indetectable para enemigos durante N segundos. */
+  invisibleSec?: number;
   /** Venda: purga solo hemorragia. Antídoto: purga todo. */
   cleanseBleed?: boolean;
   cleanseAll?: boolean;
@@ -608,6 +621,8 @@ export const CONSUMABLE_COMBAT: Record<string, ConsumableCombat> = {
   'Poción de Vida': { heal: 50 },
   'Poción de Maná': { mana: 10 },
   'Elixir de Fuerza': { damageBuff: 20 },
+  'Poción de Furia': { damageBoost: { bonus: 30, secs: 30 } },
+  'Poción de Invisibilidad': { invisibleSec: 10 },
   'Pergamino de Fuego': {
     aoe: { damage: 100, radiusTiles: 5, dot: { damage: 100, durationSec: 10, kind: 'quemadura' } },
   },
@@ -641,7 +656,9 @@ export type TimedBuffKind =
   | 'immune_burn'
   | 'hot'
   | 'attack_slow'
-  | 'move_slow';
+  | 'move_slow'
+  | 'damage_boost'
+  | 'invisible';
 
 export interface TimedBuff {
   kind: TimedBuffKind;
@@ -649,4 +666,45 @@ export interface TimedBuff {
   value: number;
   /** Epoch ms de expiración. */
   expiresAt: number;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ENGARCES DE EQUIPO (autoridad del servidor)
+// Cada pieza de Armas/Equipo tiene slots de mejora: 3 de encantamiento,
+// 2 de runa y 1 de gema. Por ahora los slots existen como modelo + UI
+// (vacíos); engarzar piezas será una acción futura.
+// ═══════════════════════════════════════════════════════════════════
+
+/** Nombres engarzados por categoría en una pieza de equipo. */
+export interface EquipmentSockets {
+  encantamientos: string[];
+  runas: string[];
+  gemas: string[];
+}
+
+/** Capacidad de engarces por pieza de equipo. */
+export const SOCKET_CAPACITY: Record<keyof EquipmentSockets, number> = {
+  encantamientos: 3,
+  runas: 2,
+  gemas: 1,
+};
+
+export function emptySockets(): EquipmentSockets {
+  return { encantamientos: [], runas: [], gemas: [] };
+}
+
+/** Valida y sanea engarces leídos de persistencia (nombres no vacíos, con tope). */
+export function sanitizeSockets(raw: unknown): EquipmentSockets {
+  const out = emptySockets();
+  if (!raw || typeof raw !== 'object') return out;
+  const o = raw as Record<string, unknown>;
+  (Object.keys(SOCKET_CAPACITY) as (keyof EquipmentSockets)[]).forEach((k) => {
+    const v = o[k];
+    if (!Array.isArray(v)) return;
+    out[k] = v
+      .filter((e): e is string => typeof e === 'string' && e.trim().length > 0)
+      .slice(0, SOCKET_CAPACITY[k])
+      .map((e) => e.slice(0, 60));
+  });
+  return out;
 }

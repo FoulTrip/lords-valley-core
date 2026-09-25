@@ -126,12 +126,28 @@ export interface EntityBuff {
  * Loadout de combate de un luchador (el servidor lo carga del dueño del
  * settlement para el player; para survivors el cliente reporta el nombre del
  * arma y aquí se valida contra el catálogo — nunca se aceptan números).
+ * Incluye todos los slots de equipo persistidos (armadura, casco, botas,
+ * guantes, escudo, collar, anillo, capa) con su calidad, igual que el arma.
  */
 export interface FighterLoadout {
   weapon?: string | null;
   armor?: string | null;
   weaponCalidad?: string | null;
   armorCalidad?: string | null;
+  helmet?: string | null;
+  helmetCalidad?: string | null;
+  boots?: string | null;
+  bootsCalidad?: string | null;
+  gloves?: string | null;
+  glovesCalidad?: string | null;
+  shield?: string | null;
+  shieldCalidad?: string | null;
+  necklace?: string | null;
+  necklaceCalidad?: string | null;
+  ring?: string | null;
+  ringCalidad?: string | null;
+  cape?: string | null;
+  capeCalidad?: string | null;
   damageBonus?: number;
   buffs?: TimedBuff[];
 }
@@ -189,6 +205,8 @@ export class CombatService {
       damageBonus: number;
       dots: ActiveDot[];
       buffs: EntityBuff[];
+      /** Resistencias de equipo (capa) vigentes, sincronizadas del loadout. */
+      equipmentResists: { fire: number; cold: number };
       settlementId: string;
       dead: boolean;
     }
@@ -210,6 +228,7 @@ export class CombatService {
     damageBonus: number;
     dots: ActiveDot[];
     buffs: EntityBuff[];
+    equipmentResists: { fire: number; cold: number };
     settlementId: string;
     dead: boolean;
   } {
@@ -227,7 +246,7 @@ export class CombatService {
           : kind === 'survivor'
             ? COMBAT_STATS.survivor.maxEnergia
             : COMBAT_STATS['dead-dragon'].maxEnergia;
-      rec = { kind, hp: maxHp, maxHp, mana: maxMana, maxMana, damageBonus: 0, dots: [], buffs: [], settlementId, dead: false };
+      rec = { kind, hp: maxHp, maxHp, mana: maxMana, maxMana, damageBonus: 0, dots: [], buffs: [], equipmentResists: { fire: 0, cold: 0 }, settlementId, dead: false };
       this.entities.set(id, rec);
     }
     return rec;
@@ -299,6 +318,65 @@ export class CombatService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Bonus de equipo combinado del loadout (misma validación contra catálogo
+   * + calidad que el arma y la armadura):
+   * - reducción física = armadura (pecho) + casco + escudo, con tope 90%;
+   * - cadencia = guantes (attackSpeedPct, multiplica los golpes);
+   * - movimiento = botas (moveSpeedPct, informativo: el cliente lo aplica);
+   * - resistencias elemental = capa (fuego/frío, con tope 90%).
+   * Los slots sin stats de combate (collar, anillo) se validan y
+   * persisten, pero no aportan bonus por ahora.
+   */
+  private resolveEquipmentBonuses(loadout?: FighterLoadout): {
+    damageReduction: number;
+    attackSpeedPct: number;
+    moveSpeedPct: number;
+    fireResist: number;
+    coldResist: number;
+  } {
+    if (!loadout) {
+      return { damageReduction: 0, attackSpeedPct: 0, moveSpeedPct: 0, fireResist: 0, coldResist: 0 };
+    }
+    const armor = this.resolveArmor(loadout.armor, loadout.armorCalidad ?? 'comun');
+    const helmet = this.resolveArmor(loadout.helmet, loadout.helmetCalidad ?? 'comun');
+    const shield = this.resolveArmor(loadout.shield, loadout.shieldCalidad ?? 'comun');
+    const gloves = this.resolveArmor(loadout.gloves, loadout.glovesCalidad ?? 'comun');
+    const boots = this.resolveArmor(loadout.boots, loadout.bootsCalidad ?? 'comun');
+    const cape = this.resolveArmor(loadout.cape, loadout.capeCalidad ?? 'comun');
+    return {
+      damageReduction: Math.max(0, Math.min(0.9, (armor?.damageReduction ?? 0) + (helmet?.damageReduction ?? 0) + (shield?.damageReduction ?? 0))),
+      attackSpeedPct: gloves?.attackSpeedPct ?? 0,
+      moveSpeedPct: boots?.moveSpeedPct ?? 0,
+      fireResist: Math.max(0, Math.min(0.9, cape?.fireResist ?? 0)),
+      coldResist: Math.max(0, Math.min(0.9, cape?.coldResist ?? 0)),
+    };
+  }
+
+  /**
+   * Bonus de daño temporal del atacante (Poción de Furia): suma los buffs
+   * 'damage_boost' vigentes del loadout. A diferencia del elixir, expira.
+   */
+  private tempDamageBonus(loadout: FighterLoadout | undefined, now = Date.now()): number {
+    if (!loadout || !Array.isArray(loadout.buffs)) return 0;
+    let bonus = 0;
+    for (const b of loadout.buffs) {
+      if (!b || b.kind !== 'damage_boost') continue;
+      if (typeof b.expiresAt !== 'number' || b.expiresAt <= now) continue;
+      if (typeof b.value !== 'number' || !Number.isFinite(b.value) || b.value <= 0) continue;
+      bonus += Math.floor(b.value);
+    }
+    return Math.max(0, bonus);
+  }
+
+  /** True si el loadout tiene invisibilidad vigente (Poción de Invisibilidad). */
+  private isInvisibleLoadout(loadout: FighterLoadout | undefined, now = Date.now()): boolean {
+    if (!loadout || !Array.isArray(loadout.buffs)) return false;
+    return loadout.buffs.some(
+      (b) => !!b && b.kind === 'invisible' && typeof b.expiresAt === 'number' && b.expiresAt > now,
+    );
   }
 
   /**
@@ -458,19 +536,22 @@ export class CombatService {
       return { ghostId, applied: false, newHp: ghost.hp, isDead: false, rejectedReason: 'attacker_too_far' };
     }
 
-    // Anti-cheat: cooldown de ataque (cadencia del arma si hay)
+    // Anti-cheat: cooldown de ataque (cadencia del arma si hay;
+    // los Guantes aceleran la cadencia como multiplicador, igual que en servidor).
     const cooldownKey = `${attackerId}:${ghostId}`;
     const lastAttack = this.attackCooldowns.get(cooldownKey);
     const now = Date.now();
-    const cdMs = this.attackIntervalMs(ATTACK_COOLDOWN_MS, weapon);
+    const attackerBonus = this.resolveEquipmentBonuses(opts?.attackerLoadout);
+    const cdMs = this.attackIntervalMs(ATTACK_COOLDOWN_MS, weapon, attackerBonus.attackSpeedPct);
     if (lastAttack && now - lastAttack.lastAttackTime < cdMs * this.slowCooldownMult(ghost, now)) {
       this.logger.warn(`[AntiCheat] Cooldown no cumplido: ${attackerId} atacó ghost ${ghostId} demasiado rápido`);
       return { ghostId, applied: false, newHp: ghost.hp, isDead: false, rejectedReason: 'cooldown_not_met' };
     }
 
-    // Daño: con arma validada lo decreta el catálogo (+ bonus de elixir);
-    // sin arma se acota el monto reportado (diseño existente).
-    const bonus = Math.max(0, Math.floor(opts?.attackerLoadout?.damageBonus ?? 0));
+    // Daño: con arma validada lo decreta el catálogo (+ bonus de elixir
+    // y furia temporal); sin arma se acota el monto reportado (diseño existente).
+    const bonus = Math.max(0, Math.floor(opts?.attackerLoadout?.damageBonus ?? 0))
+      + this.tempDamageBonus(opts?.attackerLoadout, now);
     const clampedAmount = weapon
       ? Math.max(0, Math.min(weapon.damage + bonus, MAX_WEAPON_HIT))
       : Math.max(0, Math.min(amount, MAX_DAMAGE_PER_HIT));
@@ -522,6 +603,12 @@ export class CombatService {
       return { applied: false, amount: 0, targetId, settlementId, rejectedReason: 'god_mode' };
     }
 
+    // Invisibilidad (Poción de Invisibilidad): el jugador es indetectable,
+    // los enemigos no pueden fijarlo como objetivo ni dañarlo.
+    if (this.isInvisibleLoadout(defenderLoadout)) {
+      return { applied: false, amount: 0, targetId, settlementId, rejectedReason: 'invisible' };
+    }
+
     const ghost = this.ghosts.get(ghostId);
     if (!ghost || ghost.isDead) {
       return { applied: false, amount: 0, targetId, settlementId, rejectedReason: 'ghost_not_found_or_dead' };
@@ -558,9 +645,9 @@ export class CombatService {
     // Sincroniza buffs persistidos del defensor (tónico/ungüento) al registro
     this.syncLoadoutBuffs(playerRec, defenderLoadout, now);
 
-    // Reducción de daño por armadura equipada (Cota de Malla 10%, Casco 5%, escalada por calidad)
-    const armor = this.resolveArmor(defenderLoadout?.armor, defenderLoadout?.armorCalidad ?? 'comun');
-    const dr = Math.max(0, Math.min(0.9, armor?.damageReduction ?? 0));
+    // Reducción de daño por equipo equipado (Cota de Malla 10% + Casco 5%, escalados por calidad)
+    const defenderBonus = this.resolveEquipmentBonuses(defenderLoadout);
+    const dr = defenderBonus.damageReduction;
     const finalDamage = Math.max(0, GHOST_CANON_DAMAGE_TO_PLAYER * (1 - dr));
 
     // Aplicar daño al HP autoritativo del jugador
@@ -617,11 +704,14 @@ export class CombatService {
     // los survivors reportan su arma equipada (se valida aquí).
     const loadoutWeapon = input.attackerLoadout?.weapon ?? input.weapon ?? null;
     const weapon = this.resolveWeapon(loadoutWeapon, input.attackerLoadout?.weaponCalidad ?? 'comun');
-    const armor = this.resolveArmor(input.attackerLoadout?.armor, input.attackerLoadout?.armorCalidad ?? 'comun');
-    const attackSpeedPct = armor?.attackSpeedPct ?? 0;
-    const damageBonus = Math.max(0, Math.floor(input.attackerLoadout?.damageBonus ?? 0));
-    const rangeBonusPx = (weapon?.rangeTiles ?? 0) * TILE_PX;
+    // Cadencia: los Guantes aportan attackSpeedPct (multiplica los golpes),
+    // igual que el bonus plano de velocidad del arma.
+    const attackSpeedPct = this.resolveEquipmentBonuses(input.attackerLoadout).attackSpeedPct;
     const now = Date.now();
+    // Daño: bonus permanente (elixir) + furia temporal (Poción de Furia).
+    const damageBonus = Math.max(0, Math.floor(input.attackerLoadout?.damageBonus ?? 0))
+      + this.tempDamageBonus(input.attackerLoadout, now);
+    const rangeBonusPx = (weapon?.rangeTiles ?? 0) * TILE_PX;
     const cdMs = this.attackIntervalMs(
       COMBAT_STATS[attackerKind].cooldownMs,
       attackerKind === 'ghost' || attackerKind === 'dead-dragon' ? null : weapon,
@@ -724,10 +814,18 @@ export class CombatService {
       };
     }
 
-    // Sincroniza buffs persistidos del defensor y aplica su reducción (escalada por calidad)
+    // Sincroniza buffs persistidos del defensor y aplica su reducción de
+    // equipo (armadura + casco + escudo, escalada por calidad).
+    // Un defensor invisible (Poción de Invisibilidad) no puede ser dañado.
     this.syncLoadoutBuffs(rec, input.defenderLoadout, now);
-    const defArmor = this.resolveArmor(input.defenderLoadout?.armor, input.defenderLoadout?.armorCalidad ?? 'comun');
-    const dr = Math.max(0, Math.min(0.9, defArmor?.damageReduction ?? 0));
+    if (this.hasBuff(rec, 'invisible', now)) {
+      return {
+        applied: false, damage: 0, targetId: input.targetId,
+        targetHp: rec.hp, targetMaxHp: rec.maxHp, isDead: rec.dead,
+        rejectedReason: 'target_invisible',
+      };
+    }
+    const dr = this.resolveEquipmentBonuses(input.defenderLoadout).damageReduction;
 
     const raw = this.resolveDamage(attackerKind, input.amount, weapon, damageBonus);
     if (raw <= 0) {
@@ -779,11 +877,12 @@ export class CombatService {
   }
 
   /**
-   * Sincroniza buffs persistidos (tónico/ungüento) y bonus de elixir al
-   * registro en memoria de una entidad. Los expirados se descartan.
+   * Sincroniza buffs persistidos (tónico/ungüento/furia/invisibilidad), bonus
+   * de elixir y resistencias de equipo (capa) al registro en memoria de una
+   * entidad. Los expirados se descartan.
    */
   syncLoadoutBuffs(
-    record: { buffs: EntityBuff[]; damageBonus?: number },
+    record: { buffs: EntityBuff[]; damageBonus?: number; equipmentResists?: { fire: number; cold: number } },
     loadout: FighterLoadout | undefined,
     now = Date.now(),
   ): void {
@@ -794,10 +893,14 @@ export class CombatService {
     if (Array.isArray(loadout.buffs)) {
       for (const b of loadout.buffs) {
         if (!b || typeof b.expiresAt !== 'number' || b.expiresAt <= now) continue;
-        if (!['resist_fire', 'resist_cold', 'immune_negative', 'immune_burn', 'hot', 'attack_slow', 'move_slow'].includes(b.kind)) continue;
+        if (!['resist_fire', 'resist_cold', 'immune_negative', 'immune_burn', 'hot', 'attack_slow', 'move_slow', 'damage_boost', 'invisible'].includes(b.kind)) continue;
         record.buffs = record.buffs.filter((e) => e.kind !== b.kind);
         record.buffs.push({ kind: b.kind, value: b.value, expiresAt: b.expiresAt });
       }
+    }
+    if (record.equipmentResists) {
+      const { fireResist, coldResist } = this.resolveEquipmentBonuses(loadout);
+      record.equipmentResists = { fire: fireResist, cold: coldResist };
     }
   }
 
@@ -944,17 +1047,19 @@ export class CombatService {
   /** Aplica 1 tick (1s) de dots + HoT a un registro. Retorna true si hubo cambio. */
   private applyDotsTick(record: GhostRecord | {
     kind: CombatEntityKind; hp: number; maxHp: number; dots: ActiveDot[]; buffs: EntityBuff[];
+    equipmentResists?: { fire: number; cold: number };
   }, now: number): boolean {
     this.pruneExpired(record, now);
     if (record.dots.length === 0 && !record.buffs.some((b) => b.kind === 'hot')) return false;
+    const equip = (record as { equipmentResists?: { fire: number; cold: number } }).equipmentResists;
     let changed = false;
     for (const dot of record.dots) {
       let dmg = dot.perTick;
       if (dot.kind === 'quemadura') {
         if (this.hasBuff(record, 'immune_burn', now)) continue;
-        dmg *= 1 - Math.min(0.9, this.buffValue(record, 'resist_fire', now));
+        dmg *= 1 - Math.min(0.9, this.buffValue(record, 'resist_fire', now) + (equip?.fire ?? 0));
       } else if (dot.kind === 'frio') {
-        dmg *= 1 - Math.min(0.9, this.buffValue(record, 'resist_cold', now));
+        dmg *= 1 - Math.min(0.9, this.buffValue(record, 'resist_cold', now) + (equip?.cold ?? 0));
       }
       if (dmg > 0) {
         record.hp = Math.max(0, record.hp - dmg);

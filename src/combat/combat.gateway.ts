@@ -99,37 +99,53 @@ export class CombatGateway implements OnGatewayConnection, OnGatewayDisconnect, 
       if (!ownerId) return undefined;
       const player = await this.prisma.player.findUnique({ where: { id: ownerId } });
       const game = (player?.settings as Record<string, unknown> | null)?.game as
-        | { equipment?: { weapon?: unknown; weapon2?: unknown; activeWeapon?: unknown; armor?: unknown; weaponCalidad?: unknown; weapon2Calidad?: unknown; armorCalidad?: unknown }; damageBonus?: unknown; buffs?: unknown }
+        | { equipment?: Record<string, unknown>; damageBonus?: unknown; buffs?: unknown }
         | undefined;
       if (!game || typeof game !== 'object') return undefined;
+      const eq = (game.equipment ?? {}) as Record<string, unknown>;
       const now = Date.now();
-      const useSecond = game.equipment?.activeWeapon === 2;
-      const activeWeaponName = useSecond ? game.equipment?.weapon2 : game.equipment?.weapon;
-      const activeWeaponCalidad = useSecond ? game.equipment?.weapon2Calidad : game.equipment?.weaponCalidad;
+      const useSecond = eq?.activeWeapon === 2;
+      const activeWeaponName = useSecond ? eq?.weapon2 : eq?.weapon;
+      const activeWeaponCalidad = useSecond ? eq?.weapon2Calidad : eq?.weaponCalidad;
       const weapon = typeof activeWeaponName === 'string' && getWeaponStats(activeWeaponName)
         ? activeWeaponName
-        : null;
-      const armor = typeof game.equipment?.armor === 'string' && getEquipmentStats(game.equipment.armor)
-        ? game.equipment.armor
         : null;
       const weaponCalidad = typeof activeWeaponCalidad === 'string'
         ? activeWeaponCalidad
         : 'comun';
-      const armorCalidad = typeof game.equipment?.armorCalidad === 'string'
-        ? game.equipment.armorCalidad
-        : 'comun';
+      // Todos los slots de equipo se validan contra el catálogo (nombres),
+      // igual que el arma y la armadura; lo inválido se ignora (null).
+      const equip = (key: string): string | null => {
+        const v = eq?.[key];
+        return typeof v === 'string' && getEquipmentStats(v) ? v : null;
+      };
+      const equipCalidad = (key: string): string => {
+        const v = eq?.[`${key}Calidad`];
+        return typeof v === 'string' ? v : 'comun';
+      };
       const damageBonus = typeof game.damageBonus === 'number' && game.damageBonus > 0
         ? Math.floor(game.damageBonus)
         : 0;
       const buffs = Array.isArray(game.buffs)
         ? game.buffs.filter(
-            (b): b is { kind: 'resist_fire' | 'resist_cold' | 'immune_negative' | 'immune_burn' | 'hot' | 'attack_slow' | 'move_slow'; value: number; expiresAt: number } =>
+            (b): b is { kind: 'resist_fire' | 'resist_cold' | 'immune_negative' | 'immune_burn' | 'hot' | 'attack_slow' | 'move_slow' | 'damage_boost' | 'invisible'; value: number; expiresAt: number } =>
               !!b && typeof b === 'object' &&
               typeof (b as any).expiresAt === 'number' && (b as any).expiresAt > now &&
               typeof (b as any).value === 'number',
           )
         : [];
-      return { weapon, armor, weaponCalidad, armorCalidad, damageBonus, buffs };
+      return {
+        weapon, weaponCalidad,
+        armor: equip('armor'), armorCalidad: equipCalidad('armor'),
+        helmet: equip('helmet'), helmetCalidad: equipCalidad('helmet'),
+        boots: equip('boots'), bootsCalidad: equipCalidad('boots'),
+        gloves: equip('gloves'), glovesCalidad: equipCalidad('gloves'),
+        shield: equip('shield'), shieldCalidad: equipCalidad('shield'),
+        necklace: equip('necklace'), necklaceCalidad: equipCalidad('necklace'),
+        ring: equip('ring'), ringCalidad: equipCalidad('ring'),
+        cape: equip('cape'), capeCalidad: equipCalidad('cape'),
+        damageBonus, buffs,
+      };
     } catch {
       return undefined;
     }
